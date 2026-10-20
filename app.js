@@ -27,9 +27,23 @@ function haversineMi(aLat, aLng, bLat, bLng) {
 }
 const distLabel = (d) => d === null ? "distance unknown" : d < 0.2 ? `${Math.round(d * 5280)} ft away` : `${d} mi away`;
 async function geocode(address) {
-  const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(address), { headers: { Accept: "application/json" } });
-  const j = await r.json();
-  return j.length ? { lat: +j[0].lat, lng: +j[0].lon } : null;
+  // 1) ArcGIS World geocoder — far better US house-number coverage than
+  // OpenStreetMap for new subdivisions (verified: 25500 Grassy Meadow Dr,
+  // Aldie VA scores 100 on ArcGIS, not found at all on Nominatim/Census).
+  try {
+    const r = await fetch("https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&maxLocations=1&singleLine=" + encodeURIComponent(address));
+    const j = await r.json();
+    if (j.candidates && j.candidates.length && j.candidates[0].score >= 80) {
+      return { lat: j.candidates[0].location.y, lng: j.candidates[0].location.x };
+    }
+  } catch {}
+  // 2) OpenStreetMap Nominatim fallback.
+  try {
+    const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(address), { headers: { Accept: "application/json" } });
+    const j = await r.json();
+    if (j.length) return { lat: +j[0].lat, lng: +j[0].lon };
+  } catch {}
+  return null;
 }
 const store = {
   get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
