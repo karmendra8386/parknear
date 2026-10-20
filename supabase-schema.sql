@@ -39,6 +39,8 @@ create table if not exists claims (
   phone text,
   address text,
   spot_label text,
+  car_color text,
+  car_model text,
   code text,
   created_at timestamptz default now()
 );

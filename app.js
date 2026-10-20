@@ -155,12 +155,13 @@ function drawMap(elId, points) {
 
 // ---------- views ----------
 function homeView() {
+  const savedNames = [...new Set(myEvents().map((e) => e.host_name).filter(Boolean))];
   $app.innerHTML = `
   <div class="card"><div class="big">Having an event? Borrow driveway spots from your neighbors.</div>
-  <p class="muted">Create an event, post one link in your WhatsApp group, neighbors offer spots, you lock the closest ones, guests claim them with a passcode. No app to install, no account to create.</p></div>
+  <p class="muted">Create an event, post one link in your WhatsApp group, neighbors offer spots, you lock the closest ones, guests claim them with their name and car details. No app to install, no account to create.</p></div>
   <div class="card"><h2>1 · Host — create your event</h2>
   <form id="ev-form">
-    <label>Your name</label><input id="f-host" required placeholder="Enter your name">
+    <label>Your name</label>${savedNames.length ? `<select id="f-host-sel">${savedNames.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}<option value="__new">➕ New name…</option></select><input id="f-host" placeholder="Enter your name" style="display:none">` : `<input id="f-host" required placeholder="Enter your name">`}
     <label>Your home address (event location)</label><input id="f-addr" required placeholder="Street, City, State ZIP">
     <div class="row">
       <div><label>Date</label><input id="f-date" type="date" required></div>
@@ -172,31 +173,36 @@ function homeView() {
     </div>
     <label>Your email (required — your event details are sent here for reference)</label><input id="f-email" type="email" required placeholder="you@example.com">
     <label>Your mobile (optional — neighbors/guests only see it if you share it)</label><input id="f-phone" type="tel" placeholder="Optional">
-    <label>How should neighbors and guests verify each other?</label>
-    <select id="f-verification">
-      <option value="both" selected>Names + passcode (recommended) — they confirm each other's name AND the 4-digit passcode</option>
-      <option value="name">Names only — guest and neighbor confirm each other by name, no passcode</option>
-      <option value="passcode">Passcode only — names stay private, the 4-digit passcode is the proof</option>
-    </select>
-    <p class="muted">At least one is always on — you can't turn both off, so every parked car can be verified.</p>
+    <p class="muted">Simple verification, no passcodes: guests claim with their name and car (color + make & model), so the neighbor and you can recognize exactly who is parking — nothing for anyone to remember or share.</p>
     <label>Host PIN (required — only someone with this PIN can open your host dashboard and accept offers)</label><input id="f-pin" type="password" inputmode="numeric" maxlength="8" required placeholder="4–8 digits — pick one you'll remember">
     <label>Note for neighbors (optional)</label><textarea id="f-notes" rows="2" placeholder="e.g. Diwali event, thank you! Please keep the garage side clear."></textarea>
     <p><button type="submit">Create event &amp; get my neighbor link →</button></p>
     <p class="muted" id="ev-msg"></p>
   </form></div>`;
   attachAutocomplete(document.getElementById("f-addr"));
+  const hostSel = document.getElementById("f-host-sel");
+  if (hostSel) hostSel.addEventListener("change", () => {
+    const inp = document.getElementById("f-host");
+    const isNew = hostSel.value === "__new";
+    inp.style.display = isNew ? "" : "none";
+    inp.required = isNew;
+    if (isNew) inp.focus();
+  });
   document.getElementById("ev-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const msg = document.getElementById("ev-msg"); msg.textContent = "Finding your address on the map…";
+    const msg = document.getElementById("ev-msg");
+    const hostName = hostSel && hostSel.value !== "__new" ? hostSel.value : document.getElementById("f-host").value.trim();
+    if (!hostName) { msg.textContent = "Please enter your name."; return; }
+    msg.textContent = "Finding your address on the map…";
     const addr = document.getElementById("f-addr").value.trim();
     let geo = null; try { geo = await geocode(addr); } catch {}
     if (!geo) { msg.textContent = "Could not pin that address. Check the spelling (add city, state and ZIP) and try again."; return; }
     const pinVal = document.getElementById("f-pin").value.trim();
     if (!/^\d{4,8}$/.test(pinVal)) { msg.textContent = "Your host PIN must be 4–8 digits."; return; }
-    const ev = { id: uid(), host_name: document.getElementById("f-host").value.trim(), address: addr, lat: geo.lat, lng: geo.lng,
+    const ev = { id: uid(), host_name: hostName, address: addr, lat: geo.lat, lng: geo.lng,
       party_date: document.getElementById("f-date").value, needed: +document.getElementById("f-needed").value,
       time_from: document.getElementById("f-from").value, time_to: document.getElementById("f-to").value,
-      email: document.getElementById("f-email").value.trim(), verification: document.getElementById("f-verification").value,
+      email: document.getElementById("f-email").value.trim(), verification: "name",
       host_pin_hash: await sha256Hex(pinVal),
       phone: document.getElementById("f-phone").value.trim(), notes: document.getElementById("f-notes").value.trim() };
     try { await db.createEvent(ev); } catch (err) { msg.textContent = err.message; return; }
@@ -245,12 +251,10 @@ async function hostView(ref) {
   })));
   if (LIVE) { /* codes persist via claims in Live Mode; Link Mode regenerates deterministically per session */ }
   saveOffers(ev.id, offers);
-  const mode = ev.verification || "both";
   const assignRows = spots.map((s) => {
     const c = claims.find((x) => x.address === s.address && x.spot_label === s.label);
     return `<div class="spot">🚗 <strong>${esc(s.address)}</strong> · ${esc(s.label)}<br>
-      <span class="muted">Neighbor:</span> <strong>${esc(s.neighbor)}</strong> &nbsp;→&nbsp; <span class="muted">Guest:</span> ${c ? `<strong>${esc(c.guest_name)}</strong>${c.email ? " · " + esc(c.email) : ""}${c.phone ? " · " + esc(c.phone) : ""}` : `<em>not claimed yet</em>`}
-      ${mode !== "name" && c ? `<br><span class="muted">Passcode:</span> <strong>${esc(c.code || s.code)}</strong>` : ""}</div>`;
+      <span class="muted">Neighbor:</span> <strong>${esc(s.neighbor)}</strong> &nbsp;→&nbsp; <span class="muted">Guest:</span> ${c ? `<strong>${esc(c.guest_name)}</strong>${c.car_color || c.car_model ? ` · 🚙 ${esc([c.car_color, c.car_model].filter(Boolean).join(" "))}` : ""}${c.email ? " · " + esc(c.email) : ""}${c.phone ? " · " + esc(c.phone) : ""}` : `<em>not claimed yet</em>`}</div>`;
   }).join("");
   const oLink = offerLink(ev), gLink = guestLink(ev, spots);
   const waText = `Hi neighbors! 🙏 We're hosting an event on ${ev.party_date} (${ev.time_from}–${ev.time_to}) and need ${ev.needed} extra parking spots. If your driveway is free, please offer a spot here (takes 30 seconds): ${oLink}`;
@@ -259,13 +263,8 @@ async function hostView(ref) {
     <div class="big">${esc(ev.host_name)}'s event</div><p class="muted">${esc(ev.address)} · needs ${ev.needed} spots · <strong>${lockedSpots} locked</strong></p>
     <p style="background:#fef3c7;border:1px solid #b45309;border-radius:9px;padding:10px"><strong>🔒 This page is your PRIVATE host dashboard — do not share this page's web address.</strong> It shows neighbors' phone numbers and lets anyone lock/unlock spots. Share only the NEIGHBOR LINK in step 2 below (it looks different: it has <strong>/e/</strong> in it, this dashboard has <strong>/host/</strong>).</p>
     <div id="map"></div>
-    <h3>Verification for this event</h3>
-    <p class="muted">How guests and neighbors confirm each other (at least one is always on):</p>
-    <select id="v-mode">
-      <option value="both" ${ev.verification !== "name" && ev.verification !== "passcode" ? "selected" : ""}>Names + passcode</option>
-      <option value="name" ${ev.verification === "name" ? "selected" : ""}>Names only — no passcode</option>
-      <option value="passcode" ${ev.verification === "passcode" ? "selected" : ""}>Passcode only — names stay private</option>
-    </select>
+    <h3>How guests are identified</h3>
+    <p class="muted">No passcodes — each guest claims with their name and car (color + make & model), so you and the neighbor can recognize exactly who is parking.</p>
     <h3>Host PIN</h3>
     ${ev.host_pin_hash ? `<p class="muted">This dashboard is protected by a host PIN ✓ — only someone with the PIN can open it and accept offers.</p>
       <div class="row"><div><label>Current PIN</label><input id="pin-cur" type="password" inputmode="numeric" maxlength="8"></div>
@@ -293,17 +292,22 @@ async function hostView(ref) {
     ${spots.length ? assignRows : `<p class="muted">Lock a neighbor's offer above and the neighbor → guest mapping for each spot will appear here.</p>`}
   </div>
   <div class="card"><h2>Guest claims (${claims.length})</h2>
-    ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.guest_name)}</strong> — ${esc(c.address)} · passcode <strong>${esc(c.code)}</strong></div>`).join("") : `<p class="muted">No claims yet${LIVE ? "" : " on this device. Guests get a claim link to send back to you"}.</p>`}
+    ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.guest_name)}</strong> — ${esc(c.address)}${c.car_color || c.car_model ? ` · 🚙 ${esc([c.car_color, c.car_model].filter(Boolean).join(" "))}` : ""}</div>`).join("") : `<p class="muted">No claims yet${LIVE ? "" : " on this device. Guests get a claim link to send back to you"}.</p>`}
   </div>`;
   drawMap("map", [{ lat: ev.lat, lng: ev.lng, label: "Event: " + ev.address }, ...offers.filter((o) => o.lat).map((o) => ({ lat: o.lat, lng: o.lng, label: o.neighbor_name + " — " + o.address }))]);
   $app.querySelectorAll("[data-lock]").forEach((b) => b.addEventListener("click", async () => {
     const o = offers.find((x) => String(x.id) === b.dataset.lock);
     o.status = o.status === "locked" ? "offered" : "locked"; if (o.status === "locked" && !o.code) o.code = passcode();
     try { await db.setOfferStatus(o.id, o.status); } catch {}
-    saveOffers(ev.id, offers); hostView(ev.id);
+    saveOffers(ev.id, offers);
+    if (LIVE && o.email) {
+      if (o.status === "locked") emailDetails(o.email, o.neighbor_name, `Your parking spot was accepted — ${ev.party_date}`,
+        `${ev.host_name} accepted your spot at ${o.address} for the event on ${ev.party_date} (${ev.time_from}–${ev.time_to}). Your spot is now locked in — guests can claim it, and you'll get another email with the guest's name and car when someone does.\nYour offer page: ${base()}#/o/${o.id}`);
+      else emailDetails(o.email, o.neighbor_name, `Your parking spot was released — ${ev.party_date}`,
+        `${ev.host_name} released your spot at ${o.address} for the event on ${ev.party_date}, so it's no longer offered to guests. You don't need to do anything.\nYour offer page: ${base()}#/o/${o.id}`);
+    }
+    hostView(ev.id);
   }));
-  const vSel = document.getElementById("v-mode");
-  if (vSel) vSel.addEventListener("change", async () => { try { await db.setVerification(ev, vSel.value); } catch {} hostView(ev.id); });
   const pinMsg = document.getElementById("pin-msg");
   const pinSet = document.getElementById("pin-set");
   if (pinSet) pinSet.addEventListener("click", async () => {
@@ -337,7 +341,6 @@ async function offerView(ref) {
     <label>Your home address</label><input id="o-addr" required placeholder="Street, City, State ZIP">
     <div class="row"><div><label>Spots you can offer</label><input id="o-spots" type="number" min="1" max="6" value="1" required></div>
     <div><label>Mobile (optional, only the host sees it)</label><input id="o-phone" type="tel"></div></div>
-    <label>Your own 4-digit passcode (optional)</label><input id="o-code" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="Leave blank and we'll generate one — your guest shows it to you">
     <label>Notes (optional)</label><textarea id="o-notes" rows="2" placeholder="e.g. Left side of driveway, please don't block the garage"></textarea>
     <p><button type="submit">Offer my spot →</button></p><p class="muted" id="of-msg"></p></form>
     <div id="of-done"></div></div>`;
@@ -349,24 +352,21 @@ async function offerView(ref) {
     const addr = document.getElementById("o-addr").value.trim();
     let geo = null; try { geo = await geocode(addr); } catch {}
     if (!geo) { msg.textContent = "Could not pin that address — check spelling and ZIP, then try again."; return; }
-    const ownCode = document.getElementById("o-code").value.trim();
-    if (ownCode && !/^\d{4}$/.test(ownCode)) { msg.textContent = "Your passcode must be exactly 4 digits — or leave it blank."; return; }
     const offer = { id: uid(), event_id: ev.id, neighbor_name: document.getElementById("o-name").value.trim(), address: addr,
       email: document.getElementById("o-email").value.trim(),
       lat: geo.lat, lng: geo.lng, spots: +document.getElementById("o-spots").value, phone: document.getElementById("o-phone").value.trim(),
-      notes: document.getElementById("o-notes").value.trim(), status: "offered", code: ownCode || passcode() };
+      notes: document.getElementById("o-notes").value.trim(), status: "offered", code: passcode() };
     const d = haversineMi(ev.lat, ev.lng, geo.lat, geo.lng);
-    const mode = ev.verification || "both";
     const myLink = `${base()}#/o/${offer.id}`;
-    const detailsText = `Your ParkNear offer for ${ev.host_name}'s event on ${ev.party_date} (${ev.time_from}–${ev.time_to}) at ${ev.address}.\nYour spot: ${addr} (${offer.spots} spot(s), ${distLabel(d)} from the event)${mode !== "name" ? `\nPasscode your guest will show you: ${offer.code}` : ""}\nSee who claimed your spot: ${myLink}`;
+    const detailsText = `Your ParkNear offer for ${ev.host_name}'s event on ${ev.party_date} (${ev.time_from}–${ev.time_to}) at ${ev.address}.\nYour spot: ${addr} (${offer.spots} spot(s), ${distLabel(d)} from the event)\nYour guest will identify themselves by name and car (color + make & model) — no passcode needed.\nSee who claimed your spot: ${myLink}`;
     emailDetails(offer.email, offer.neighbor_name, `Your ParkNear parking offer — ${ev.party_date}`, detailsText);
     if (LIVE) {
       try { await db.addOffer(offer); } catch (err) { msg.textContent = err.message; return; }
       if (ev.email) emailDetails(ev.email, ev.host_name, `New parking offer for your event — ${ev.party_date}`,
         `${offer.neighbor_name} just offered ${offer.spots} parking spot(s) at ${offer.address} (${distLabel(d)} from your event at ${ev.address}) for your event on ${ev.party_date}, ${ev.time_from}–${ev.time_to}.\nOpen your host dashboard to review it and lock the spots you want: ${base()}#/host/${ev.id}`);
       document.getElementById("of-done").innerHTML = `<div class="card"><div class="big">Thank you! 🎉</div><p>Your ${offer.spots} spot(s) — ${distLabel(d)} from the event — are offered. ${esc(ev.host_name)} will lock the closest spots.</p>
-        ${mode !== "name" ? `<p class="muted">Your passcode — your guest will show you this:</p><div class="code">${offer.code}</div>` : `<p>Your guest will confirm themselves <strong>by name</strong> — the host chose name verification for this event.</p>`}
-        <p><strong>Your personal offer page</strong> — bookmark it to see which guest claimed your spot (their name${mode !== "name" ? " and the passcode" : ""}):</p><p class="linkbox">${myLink}</p>
+        <p>Your guest will identify themselves <strong>by name and car</strong> (color + make & model) — no passcode to remember.</p>
+        <p><strong>Your personal offer page</strong> — bookmark it to see which guest claimed your spot (their name and car):</p><p class="linkbox">${myLink}</p>
         <p>${mailtoBtn(offer.email, "Your ParkNear parking offer — " + ev.party_date, detailsText)}</p></div>`;
     } else {
       const importLink = `${base()}#/import/${enc({ ev, offer })}`;
@@ -375,7 +375,7 @@ async function offerView(ref) {
         <p>Send your offer to ${esc(ev.host_name)} so it lands in his dashboard:</p>
         <p><a class="btn" target="_blank" href="${ev.phone ? "https://wa.me/" + ev.phone.replace(/\D/g, "") + "?text=" + encodeURIComponent(text) : waShare(text)}">Send offer on WhatsApp</a>
         <button class="secondary" onclick="navigator.clipboard.writeText('${importLink}');this.textContent='Copied ✓'">Copy offer link</button></p>
-        ${mode !== "name" ? `<p class="muted">Your spot's passcode (your guest will show you this):</p><div class="code">${offer.code}</div>` : `<p>Your guest will confirm themselves <strong>by name</strong> for this event.</p>`}</div>`;
+        <p>Your guest will identify themselves <strong>by name and car</strong> (color + make & model).</p></div>`;
     }
     msg.textContent = "";
   });
@@ -404,17 +404,16 @@ async function guestView(ref) {
     spots.forEach((s, i) => { if (claimed.includes(i)) s.takenLocally = true; });
   }
   if (!ev) { $app.innerHTML = `<div class="card"><p>This guest link isn't valid anymore. Ask the host for a fresh link.</p></div>`; return; }
-  const gmode = ev.verification || "both";
-  const neighborLabel = (s) => gmode === "passcode" ? "a neighbor (name kept private by the host)" : esc(s.neighbor);
+  const neighborLabel = (s) => esc(s.neighbor);
   spots = spots.map((s) => ({ ...s, dist: haversineMi(ev.lat, ev.lng, s.lat, s.lng) })).sort((a, b) => (a.dist ?? 99) - (b.dist ?? 99));
   $app.innerHTML = `
   <div class="card"><span class="badge">${esc(ev.party_date)} · ${esc(ev.time_from)}–${esc(ev.time_to)}</span>
-    <div class="big">Parking for ${esc(ev.host_name)}'s event</div><p class="muted">Event at ${esc(ev.address)}. Claim a spot below${gmode === "name" ? " — the neighbor will confirm you by name" : " — you'll get a passcode to show the neighbor"}.</p><div id="map"></div></div>
+    <div class="big">Parking for ${esc(ev.host_name)}'s event</div><p class="muted">Event at ${esc(ev.address)}. Claim a spot below — the neighbor will recognize you by your name and your car (color + make & model). No passcode needed.</p><div id="map"></div></div>
   <div class="card"><h2>Available spots — closest first</h2>
     ${spots.length ? "" : `<p class="muted">No spots have been locked for guests yet. Check back soon.</p>`}
     <div id="spot-list">${spots.map((s, i) => `<div class="spot"><strong>${esc(s.address)}</strong> <span class="badge amber">${distLabel(s.dist)}</span>
       <br><span class="muted">${esc(s.label)} · offered by ${neighborLabel(s)}${s.takenBy ? " · this spot is claimed" : ""}</span>
-      <div data-claim-zone="${i}">${s.takenBy || s.takenLocally ? `<p class="muted">This spot is claimed.</p>` : `<br><input placeholder="Your name" id="g-name-${i}"><input placeholder="Your email (required)" type="email" id="g-email-${i}"><input placeholder="Mobile (optional)" type="tel" id="g-phone-${i}"> <button data-claim="${i}">Claim this spot</button>`}</div></div>`).join("")}</div>
+      <div data-claim-zone="${i}">${s.takenBy || s.takenLocally ? `<p class="muted">This spot is claimed.</p>` : `<br><input placeholder="Your name" id="g-name-${i}"><input placeholder="Your email (required)" type="email" id="g-email-${i}"><input placeholder="Mobile (optional)" type="tel" id="g-phone-${i}"><br><input placeholder="Car color (required) — e.g. Silver" id="g-carcolor-${i}"><input placeholder="Car make & model (required) — e.g. Toyota Camry" id="g-carmodel-${i}"> <button data-claim="${i}">Claim this spot</button>`}</div></div>`).join("")}</div>
     <div id="claim-done"></div></div>`;
   drawMap("map", [{ lat: ev.lat, lng: ev.lng, label: "Event: " + ev.address }, ...spots.filter((s) => s.lat).map((s) => ({ lat: s.lat, lng: s.lng, label: s.address }))]);
   $app.querySelectorAll("[data-claim]").forEach((b) => b.addEventListener("click", async () => {
@@ -424,25 +423,29 @@ async function guestView(ref) {
     const gEmail = document.getElementById("g-email-" + i).value.trim();
     if (!gEmail || !gEmail.includes("@")) { alert("Please enter your email — your parking details are sent there for reference."); return; }
     const gPhone = document.getElementById("g-phone-" + i).value.trim();
-    const claim = { id: uid(), event_id: ev.id, guest_name: name, email: gEmail, phone: gPhone, address: s.address, spot_label: s.label, code: s.code };
+    const carColor = document.getElementById("g-carcolor-" + i).value.trim();
+    if (!carColor) { alert("Please enter your car color — the neighbor will recognize your car by it."); return; }
+    const carModel = document.getElementById("g-carmodel-" + i).value.trim();
+    if (!carModel) { alert("Please enter your car make & model — e.g. Toyota Camry."); return; }
+    const claim = { id: uid(), event_id: ev.id, guest_name: name, email: gEmail, phone: gPhone, car_color: carColor, car_model: carModel, address: s.address, spot_label: s.label, code: s.code };
     let notifyHtml = "";
     if (LIVE) { try { await db.addClaim(claim); } catch (e) { alert(e.message); return; }
       if (ev.email) emailDetails(ev.email, ev.host_name, `A guest claimed a parking spot — ${ev.party_date}`,
-        `${name} just claimed the spot at ${s.address} (${s.label}, offered by ${s.neighbor}) for your event on ${ev.party_date}, ${ev.time_from}–${ev.time_to}.\nGuest: ${name} · ${gEmail}${gPhone ? " · " + gPhone : ""}${gmode !== "name" ? `\nPasscode the guest will show: ${s.code}` : ""}\nSee all parking assignments: ${base()}#/host/${ev.id}`);
+        `${name} just claimed the spot at ${s.address} (${s.label}, offered by ${s.neighbor}) for your event on ${ev.party_date}, ${ev.time_from}–${ev.time_to}.\nGuest: ${name} · ${gEmail}${gPhone ? " · " + gPhone : ""}\nCar: ${carColor} ${carModel}\nSee all parking assignments: ${base()}#/host/${ev.id}`);
       if (s.nemail) emailDetails(s.nemail, s.neighbor, `Your parking spot was claimed — ${ev.party_date}`,
-        `${gmode === "passcode" ? "A guest" : name} claimed your spot at ${s.address} for ${ev.host_name}'s event on ${ev.party_date} (${ev.time_from}–${ev.time_to}).${gmode !== "name" ? `\nThe passcode they will show you: ${s.code}` : `\nGuest name to expect: ${name}`}\nYour offer page: ${base()}#/o/${s.offer_id}`);
+        `${name} claimed your spot at ${s.address} for ${ev.host_name}'s event on ${ev.party_date} (${ev.time_from}–${ev.time_to}).\nGuest to expect: ${name} — car: ${carColor} ${carModel}\nYour offer page: ${base()}#/o/${s.offer_id}`);
     }
     else {
       const taken = store.get("parknear_taken_" + ev.id, []); taken.push(spots.indexOf(s)); store.set("parknear_taken_" + ev.id, taken);
       const claimLink = `${base()}#/claim/${enc({ ev, claim })}`;
-      notifyHtml = `<p><a class="btn" target="_blank" href="${waShare(`Hi ${ev.host_name}, I'm ${name} — I claimed the spot at ${s.address} for your event.${gmode !== "name" ? " My passcode is " + s.code + "." : ""}`)}">Tell the host on WhatsApp</a></p>`;
+      notifyHtml = `<p><a class="btn" target="_blank" href="${waShare(`Hi ${ev.host_name}, I'm ${name} — I claimed the spot at ${s.address} for your event. My car: ${carColor} ${carModel}.`)}">Tell the host on WhatsApp</a></p>`;
     }
-    const gDetails = `Your parking for ${ev.host_name}'s event on ${ev.party_date} (${ev.time_from}–${ev.time_to}).\nDrive to: ${s.address} (${s.label}, ${distLabel(s.dist)} from the event at ${ev.address})\nNeighbor: ${gmode === "passcode" ? "(name kept private — verify by passcode)" : s.neighbor}${gmode !== "name" ? `\nYour passcode: ${s.code}` : `\nVerify by name: tell ${s.neighbor} your name is ${name}`}`;
+    const gDetails = `Your parking for ${ev.host_name}'s event on ${ev.party_date} (${ev.time_from}–${ev.time_to}).\nDrive to: ${s.address} (${s.label}, ${distLabel(s.dist)} from the event at ${ev.address})\nNeighbor: ${s.neighbor}\nYour car on record: ${carColor} ${carModel} — ${s.neighbor} will recognize you by your name and car.`;
     emailDetails(gEmail, name, `Your parking for ${ev.host_name}'s event — ${ev.party_date}`, gDetails);
     document.getElementById("claim-done").innerHTML = `<div class="card"><div class="big">You're parked! 🎉</div>
       <p>Drive to: <strong>${esc(s.address)}</strong> (${distLabel(s.dist)} from the event)</p>
       <p><a class="btn" target="_blank" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(s.address)}">Navigate with Google Maps</a></p>
-      ${gmode !== "name" ? `<p class="muted">Show this passcode to ${neighborLabel(s)} if they ask — it proves this is your spot:</p><div class="code">${esc(s.code)}</div>` : `<p>The neighbor is <strong>${esc(s.neighbor)}</strong> — just tell them your name (<strong>${esc(name)}</strong>) when you arrive; the host chose name verification for this event, no passcode needed.</p>`}
+      <p>The neighbor is <strong>${esc(s.neighbor)}</strong> — they'll recognize you by your name and your car: <strong>${esc(carColor)} ${esc(carModel)}</strong>. No passcode needed.</p>
       <p>${mailtoBtn(gEmail, "Your parking for " + ev.host_name + "'s event — " + ev.party_date, gDetails)}</p>${notifyHtml}</div>`;
     document.getElementById("claim-done").scrollIntoView({ behavior: "smooth" });
   }));
@@ -454,15 +457,14 @@ async function neighborView(offerId) {
   if (!offer) { $app.innerHTML = `<div class="card"><p>This offer link isn't valid anymore.</p></div>`; return; }
   const ev = await db.getEvent(offer.event_id);
   const claims = (await db.listClaims(offer.event_id)).filter((c) => c.address === offer.address);
-  const mode = (ev && ev.verification) || "both";
   $app.innerHTML = `
   <div class="card"><span class="badge">${ev ? esc(ev.party_date) + " · " + esc(ev.time_from) + "–" + esc(ev.time_to) : ""}</span>
     <div class="big">Your parking offer${ev ? ` for ${esc(ev.host_name)}'s event` : ""}</div>
     <p><strong>${esc(offer.neighbor_name)}</strong> · ${esc(offer.address)} · ${offer.spots} spot(s) · status: <strong>${esc(offer.status)}</strong></p>
-    ${mode !== "name" ? `<p class="muted">Passcode your guest will show you:</p><div class="code">${esc(offer.code)}</div>` : `<p>Guests will confirm themselves <strong>by name</strong> — the host chose name verification for this event.</p>`}
+    <p>Guests identify themselves <strong>by name and car</strong> (color + make & model) — no passcode needed.</p>
   </div>
   <div class="card"><h2>Who claimed your spot${offer.spots > 1 ? "s" : ""} (${claims.length})</h2>
-    ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.spot_label)}</strong> → Guest: ${mode === "passcode" ? `<em>name kept private by the host — verify by passcode</em>` : `<strong>${esc(c.guest_name)}</strong>`}${mode !== "name" ? ` · passcode <strong>${esc(c.code)}</strong>` : ""}</div>`).join("") : `<p class="muted">No guest has claimed your spot yet. This page updates as guests claim — bookmark it and check on event day.</p>`}
+    ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.spot_label)}</strong> → Guest: <strong>${esc(c.guest_name)}</strong>${c.car_color || c.car_model ? ` · 🚙 ${esc([c.car_color, c.car_model].filter(Boolean).join(" "))}` : ""}</div>`).join("") : `<p class="muted">No guest has claimed your spot yet. This page updates as guests claim — bookmark it and check on event day.</p>`}
     <p class="muted">Event at ${ev ? esc(ev.address) : ""}. Keep this page's link private — it shows your claim details.</p></div>`;
 }
 
@@ -524,13 +526,13 @@ async function adminView() {
     body = `<div class="card"><p><button class="secondary" id="admin-back">← All events</button></p>
       <span class="badge">${esc(ev.party_date || "")} · ${esc(ev.time_from || "")}–${esc(ev.time_to || "")}</span> ${statusChip(evStatus(ev))}
       <div class="big">${esc(ev.host_name)}'s event</div>
-      <p class="muted">${esc(ev.address)} · needs ${ev.needed} spots · verification: ${esc(ev.verification || "both")}${ev.email ? " · host email " + esc(ev.email) : ""}${ev.phone ? " · " + esc(ev.phone) : ""}</p>
+      <p class="muted">${esc(ev.address)} · needs ${ev.needed} spots${ev.email ? " · host email " + esc(ev.email) : ""}${ev.phone ? " · " + esc(ev.phone) : ""}</p>
       <p><a class="btn secondary" href="#/host/${ev.id}">Open host dashboard</a> <button class="danger" data-del-event="${ev.id}">Delete event</button></p>
       <h3>🙋 Offers (${offers.length})</h3>
-      ${offers.length ? offers.map((o) => `<div class="spot"><strong>${esc(o.neighbor_name)}</strong> — ${esc(o.status)} — ${esc(o.address)} · ${o.spots} spot(s)${o.email ? " · " + esc(o.email) : ""}${o.phone ? " · " + esc(o.phone) : ""} · passcode ${esc(o.code || "—")}
+      ${offers.length ? offers.map((o) => `<div class="spot"><strong>${esc(o.neighbor_name)}</strong> — ${esc(o.status)} — ${esc(o.address)} · ${o.spots} spot(s)${o.email ? " · " + esc(o.email) : ""}${o.phone ? " · " + esc(o.phone) : ""}
         <br><button class="secondary" data-toggle-offer="${o.id}" data-ev="${ev.id}">${o.status === "locked" ? "Unlock" : "Accept & lock"}</button> <button class="danger" data-del-offer="${o.id}">Delete offer</button></div>`).join("") : `<p class="muted">No offers yet.</p>`}
       <h3>🎟️ Guest claims (${claims.length})</h3>
-      ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.guest_name)}</strong> → ${esc(c.address)} · ${esc(c.spot_label || "")}${c.email ? " · " + esc(c.email) : ""}${c.phone ? " · " + esc(c.phone) : ""} · passcode ${esc(c.code || "—")}
+      ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.guest_name)}</strong> → ${esc(c.address)} · ${esc(c.spot_label || "")}${c.email ? " · " + esc(c.email) : ""}${c.phone ? " · " + esc(c.phone) : ""}${c.car_color || c.car_model ? " · 🚙 " + esc([c.car_color, c.car_model].filter(Boolean).join(" ")) : ""}
         <br><button class="danger" data-del-claim="${c.id}">Delete claim</button></div>`).join("") : `<p class="muted">No claims yet.</p>`}
     </div>`;
   } else if (adminState.tab === "offers") {
@@ -540,13 +542,13 @@ async function adminView() {
     if (f !== "all") rows = rows.filter(({ o }) => o.status === f);
     body = `<div class="card"><h2>🙋 All offers (${rows.length})</h2>
       <p><button data-ofilter="all" class="${f === "all" ? "" : "secondary"}">All</button> <button data-ofilter="offered" class="${f === "offered" ? "" : "secondary"}">Offered</button> <button data-ofilter="locked" class="${f === "locked" ? "" : "secondary"}">Locked</button></p>
-      ${rows.length ? rows.map(({ ev, o }) => `<div class="spot"><strong>${esc(o.neighbor_name)}</strong> — ${esc(o.status)} — ${esc(o.address)} · ${o.spots} spot(s) · passcode ${esc(o.code || "—")}${o.email ? " · " + esc(o.email) : ""}
+      ${rows.length ? rows.map(({ ev, o }) => `<div class="spot"><strong>${esc(o.neighbor_name)}</strong> — ${esc(o.status)} — ${esc(o.address)} · ${o.spots} spot(s)${o.email ? " · " + esc(o.email) : ""}
         <br><span class="muted">Event: ${esc(ev.host_name)} · ${esc(ev.party_date)}</span> <button class="secondary" data-open-event="${ev.id}">Open event</button> <button class="secondary" data-toggle-offer="${o.id}" data-ev="${ev.id}">${o.status === "locked" ? "Unlock" : "Accept & lock"}</button> <button class="danger" data-del-offer="${o.id}">Delete</button></div>`).join("") : `<p class="muted">No offers in this category.</p>`}</div>`;
   } else if (adminState.tab === "claims") {
     let rows = [];
     events.forEach((ev) => data.get(ev.id).claims.forEach((c) => rows.push({ ev, c })));
     body = `<div class="card"><h2>🎟️ All guest claims (${rows.length})</h2>
-      ${rows.length ? rows.map(({ ev, c }) => `<div class="spot"><strong>${esc(c.guest_name)}</strong> → ${esc(c.address)} · ${esc(c.spot_label || "")} · passcode ${esc(c.code || "—")}${c.email ? " · " + esc(c.email) : ""}${c.phone ? " · " + esc(c.phone) : ""}
+      ${rows.length ? rows.map(({ ev, c }) => `<div class="spot"><strong>${esc(c.guest_name)}</strong> → ${esc(c.address)} · ${esc(c.spot_label || "")}${c.car_color || c.car_model ? " · 🚙 " + esc([c.car_color, c.car_model].filter(Boolean).join(" ")) : ""}${c.email ? " · " + esc(c.email) : ""}${c.phone ? " · " + esc(c.phone) : ""}
         <br><span class="muted">Event: ${esc(ev.host_name)} · ${esc(ev.party_date)}</span> <button class="secondary" data-open-event="${ev.id}">Open event</button> <button class="danger" data-del-claim="${c.id}">Delete claim</button></div>`).join("") : `<p class="muted">No claims yet.</p>`}</div>`;
   } else {
     const groups = [["today", "📅 Today"], ["upcoming", "🔜 Upcoming"], ["past", "🗂️ Past"]];
@@ -589,7 +591,16 @@ async function adminView() {
     const offers = await db.listOffers(b.dataset.ev);
     const o = offers.find((x) => String(x.id) === b.dataset.toggleOffer);
     if (!o) return;
-    try { await db.setOfferStatus(o.id, o.status === "locked" ? "offered" : "locked"); } catch (e) { alert(e.message); return; } adminView();
+    const newStatus = o.status === "locked" ? "offered" : "locked";
+    try { await db.setOfferStatus(o.id, newStatus); } catch (e) { alert(e.message); return; }
+    if (o.email) {
+      const evA = await db.getEvent(b.dataset.ev);
+      if (evA) emailDetails(o.email, o.neighbor_name, newStatus === "locked" ? `Your parking spot was accepted — ${evA.party_date}` : `Your parking spot was released — ${evA.party_date}`,
+        newStatus === "locked"
+          ? `${evA.host_name} accepted your spot at ${o.address} for the event on ${evA.party_date} (${evA.time_from}–${evA.time_to}). Your spot is now locked in — guests can claim it, and you'll get another email with the guest's name and car when someone does.\nYour offer page: ${base()}#/o/${o.id}`
+          : `${evA.host_name} released your spot at ${o.address} for the event on ${evA.party_date}, so it's no longer offered to guests. You don't need to do anything.\nYour offer page: ${base()}#/o/${o.id}`);
+    }
+    adminView();
   }));
 }
 
@@ -598,7 +609,7 @@ function claimImportView(ref) {
   if (!data || !data.claim) { $app.innerHTML = `<div class="card"><p>This claim link isn't valid.</p></div>`; return; }
   const { ev, claim } = data; saveEvent(ev);
   const claims = claimsFor(ev.id); if (!claims.some((c) => c.id === claim.id)) { claims.push(claim); saveClaims(ev.id, claims); }
-  $app.innerHTML = `<div class="card"><div class="big">Guest claim saved ✓</div><p><strong>${esc(claim.guest_name)}</strong> claimed ${esc(claim.address)} · passcode ${esc(claim.code)}</p><p><a class="btn" href="#/host/${ev.id}">Open host dashboard</a></p></div>`;
+  $app.innerHTML = `<div class="card"><div class="big">Guest claim saved ✓</div><p><strong>${esc(claim.guest_name)}</strong> claimed ${esc(claim.address)}${claim.car_color ? " · 🚙 " + esc([claim.car_color, claim.car_model].filter(Boolean).join(" ")) : ""}</p><p><a class="btn" href="#/host/${ev.id}">Open host dashboard</a></p></div>`;
 }
 
 // ---------- router ----------
