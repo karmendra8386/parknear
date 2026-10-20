@@ -1,17 +1,17 @@
-# ParkNear — Neighborhood Party Parking
+# ParkNear — Neighborhood Event Parking
 
-Borrow a neighbor's driveway spot for your party. No app to install, no account for neighbors or guests.
+Borrow a neighbor's driveway spot for your event. No app to install, no account for neighbors or guests.
 
 **Flow**
-1. **Host** creates a party (name, address, date, spots needed) → gets a *neighbor link*.
-2. **Host** posts the link in the WhatsApp group. **Neighbors** open it, offer 1–6 driveway spots (address is pinned on a free OpenStreetMap; distance to the party is calculated automatically).
-3. **Host dashboard** lists offers closest-first. Host accepts/locks spots until the party is covered → gets a *guest link* (each locked spot carries a 4-digit passcode).
+1. **Host** creates a event (name, address, date, spots needed) → gets a *neighbor link*.
+2. **Host** posts the link in the WhatsApp group. **Neighbors** open it, offer 1–6 driveway spots (address is pinned on a free OpenStreetMap; distance to the event is calculated automatically).
+3. **Host dashboard** lists offers closest-first. Host accepts/locks spots until the event is covered → gets a *guest link* (each locked spot carries a 4-digit passcode).
 4. **Guests** open the guest link, claim a spot, get the address, a Google Maps navigation button, and the passcode to show the neighbor.
 
 ## Two modes
 
 ### Link Mode (default, $0, no accounts anywhere)
-Data travels inside the share links and back via WhatsApp; the host dashboard lives in the host's browser. Works on any static host. Good enough for one neighborhood and occasional parties.
+Data travels inside the share links and back via WhatsApp; the host dashboard lives in the host's browser. Works on any static host. Good enough for one neighborhood and occasional events.
 
 ### Live Mode (recommended once real neighbors use it)
 Add a free Supabase project so offers and claims sync for everyone in real time — no "send the link back" step.
