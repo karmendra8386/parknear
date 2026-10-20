@@ -22,3 +22,4 @@ footer{max-width:880px;margin:0 auto;padding:18px;color:#64748b;font-size:13px}
 .ac-item { padding: 10px 12px; cursor: pointer; font-size: 14px; color: #0B2545; border-bottom: 1px solid #eef1f6; }
 .ac-item:last-child { border-bottom: none; }
 .ac-item:hover, .ac-item:active { background: #eef4ff; }
+button.danger, .btn.danger { background: #b3261e; color: #fff; }
