@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ParkNear — Neighborhood Party Parking</title>
+<meta name="description" content="Borrow a neighbor's driveway spot for your party. One link for neighbors to offer spots, one link for guests to claim them.">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <div class="brand">🚗 ParkNear</div>
+  <nav>
+    <a href="#/">Host a party</a>
+    <a href="#/host">Host dashboard</a>
+  </nav>
+</header>
+<main id="app"><p class="muted">Loading…</p></main>
+<footer>
+  <p>ParkNear runs on free maps (OpenStreetMap). Exact addresses and phone numbers are only shown to the people who need them — the host, and a guest after they claim a spot.</p>
+  <p id="mode-line" class="muted"></p>
+</footer>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
