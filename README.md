@@ -1,4 +1,4 @@
-# ParkNear — Neighborhood Event Parking
+# ParkNextDoor — Neighborhood Event Parking
 
 Borrow a neighbor's driveway spot for your event. No app to install, no account for neighbors or guests.
 

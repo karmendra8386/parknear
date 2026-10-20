@@ -1,5 +1,5 @@
 "use strict";
-/* ParkNear — neighborhood event parking.
+/* ParkNextDoor — neighborhood event parking.
    Two modes:
    - Live Mode: PARK_CONFIG has a Supabase URL + anon key. Events, offers and
      claims are rows in a shared database; links carry only an event id.
@@ -208,7 +208,7 @@ function homeView() {
     try { await db.createEvent(ev); } catch (err) { msg.textContent = err.message; return; }
     saveEvent(ev);
     sessionStorage.setItem("parknear_host_" + ev.id, "1");
-    emailDetails(ev.email, ev.host_name, `Your ParkNear event — ${ev.party_date}`,
+    emailDetails(ev.email, ev.host_name, `Your ParkNextDoor event — ${ev.party_date}`,
       `Hi ${ev.host_name}, your event is created.\nWhen: ${ev.party_date}, ${ev.time_from}–${ev.time_to}\nWhere: ${ev.address}\nSpots needed: ${ev.needed}\nShare this link with neighbors: ${offerLink(ev)}\nYour private host dashboard (do not share): ${base()}#/host/${ev.id}`);
     location.hash = "#/host/" + ev.id;
   });
@@ -358,8 +358,8 @@ async function offerView(ref) {
       notes: document.getElementById("o-notes").value.trim(), status: "offered", code: passcode() };
     const d = haversineMi(ev.lat, ev.lng, geo.lat, geo.lng);
     const myLink = `${base()}#/o/${offer.id}`;
-    const detailsText = `Your ParkNear offer for ${ev.host_name}'s event on ${ev.party_date} (${ev.time_from}–${ev.time_to}) at ${ev.address}.\nYour spot: ${addr} (${offer.spots} spot(s), ${distLabel(d)} from the event)\nYour guest will identify themselves by name and car (color + make & model) — no passcode needed.\nSee who claimed your spot: ${myLink}`;
-    emailDetails(offer.email, offer.neighbor_name, `Your ParkNear parking offer — ${ev.party_date}`, detailsText);
+    const detailsText = `Your ParkNextDoor offer for ${ev.host_name}'s event on ${ev.party_date} (${ev.time_from}–${ev.time_to}) at ${ev.address}.\nYour spot: ${addr} (${offer.spots} spot(s), ${distLabel(d)} from the event)\nYour guest will identify themselves by name and car (color + make & model) — no passcode needed.\nSee who claimed your spot: ${myLink}`;
+    emailDetails(offer.email, offer.neighbor_name, `Your ParkNextDoor parking offer — ${ev.party_date}`, detailsText);
     if (LIVE) {
       try { await db.addOffer(offer); } catch (err) { msg.textContent = err.message; return; }
       if (ev.email) emailDetails(ev.email, ev.host_name, `New parking offer for your event — ${ev.party_date}`,
@@ -367,7 +367,7 @@ async function offerView(ref) {
       document.getElementById("of-done").innerHTML = `<div class="card"><div class="big">Thank you! 🎉</div><p>Your ${offer.spots} spot(s) — ${distLabel(d)} from the event — are offered. ${esc(ev.host_name)} will lock the closest spots.</p>
         <p>Your guest will identify themselves <strong>by name and car</strong> (color + make & model) — no passcode to remember.</p>
         <p><strong>Your personal offer page</strong> — bookmark it to see which guest claimed your spot (their name and car):</p><p class="linkbox">${myLink}</p>
-        <p>${mailtoBtn(offer.email, "Your ParkNear parking offer — " + ev.party_date, detailsText)}</p></div>`;
+        <p>${mailtoBtn(offer.email, "Your ParkNextDoor parking offer — " + ev.party_date, detailsText)}</p></div>`;
     } else {
       const importLink = `${base()}#/import/${enc({ ev, offer })}`;
       const text = `Hi ${ev.host_name}, I can offer ${offer.spots} parking spot(s) at ${addr} (${distLabel(d)}) for your ${ev.party_date} event. Tap this link to add my offer to your dashboard: ${importLink}`;
@@ -505,7 +505,7 @@ async function adminView() {
   }
   const counts = { today: 0, upcoming: 0, past: 0 };
   events.forEach((ev) => counts[evStatus(ev)]++);
-  const head = `<div class="card"><div class="big">🛠️ ParkNear Admin</div>
+  const head = `<div class="card"><div class="big">🛠️ ParkNextDoor Admin</div>
     <div class="statrow">
       <div class="stat"><div class="statnum">${events.length}</div><div class="statlbl">Events</div></div>
       <div class="stat"><div class="statnum">${counts.today + counts.upcoming}</div><div class="statlbl">Today + upcoming</div></div>
