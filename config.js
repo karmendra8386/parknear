@@ -10,5 +10,5 @@ window.PARK_CONFIG = {
   emailjs: { publicKey: "a2hLXf-w6Rhvu8ho5", serviceId: "service_bfvbe4o", templateId: "template_ziicn5x" },
   // Admin page (#/admin) gate: SHA-256 hash of the admin PIN. Empty = admin
   // page stays locked until the owner sets a PIN.
-  adminPinHash: ""
+  adminPinHash: "a5266239ab5a99c8456d926461b67c9953887f857fd3a7d86dc399e5012b9a5d"
 };
