@@ -161,8 +161,9 @@ async function hostView(ref) {
   $app.innerHTML = `
   <div class="card"><span class="badge">${esc(ev.party_date)} · ${esc(ev.time_from)}–${esc(ev.time_to)}</span>
     <div class="big">${esc(ev.host_name)}'s party</div><p class="muted">${esc(ev.address)} · needs ${ev.needed} spots · <strong>${lockedSpots} locked</strong></p>
+    <p style="background:#fef3c7;border:1px solid #b45309;border-radius:9px;padding:10px"><strong>🔒 This page is your PRIVATE host dashboard — do not share this page's web address.</strong> It shows neighbors' phone numbers and lets anyone lock/unlock spots. Share only the NEIGHBOR LINK in step 2 below (it looks different: it has <strong>/e/</strong> in it, this dashboard has <strong>/host/</strong>).</p>
     <div id="map"></div>
-    <h3>2 · Post this link in your WhatsApp group — neighbors offer spots</h3>
+    <h3>2 · ✅ Share THIS link with neighbors — post it in your WhatsApp group</h3>
     <p class="linkbox">${esc(oLink)}</p>
     <p><a class="btn" target="_blank" href="${waShare(waText)}">Share on WhatsApp</a>
     <button class="secondary" onclick="navigator.clipboard.writeText('${oLink}');this.textContent='Copied ✓'">Copy link</button></p>
