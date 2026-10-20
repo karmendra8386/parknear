@@ -10,6 +10,8 @@ create table if not exists events (
   time_from text,
   time_to text,
   phone text,
+  email text,
+  verification text default 'both',
   notes text,
   created_at timestamptz default now()
 );
@@ -22,6 +24,7 @@ create table if not exists offers (
   lng double precision,
   spots int default 1,
   phone text,
+  email text,
   notes text,
   status text default 'offered',  -- offered | locked
   code text,
@@ -31,6 +34,8 @@ create table if not exists claims (
   id text primary key,
   event_id text references events(id) on delete cascade,
   guest_name text not null,
+  email text,
+  phone text,
   address text,
   spot_label text,
   code text,
