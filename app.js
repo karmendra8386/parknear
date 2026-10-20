@@ -26,6 +26,45 @@ function haversineMi(aLat, aLng, bLat, bLng) {
   return Math.round(R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)) * 100) / 100;
 }
 const distLabel = (d) => d === null ? "distance unknown" : d < 0.2 ? `${Math.round(d * 5280)} ft away` : `${d} mi away`;
+// Address search-as-you-type (ArcGIS suggestions — the same service that can
+// find new-subdivision streets; Nominatim as fallback)
+async function suggestAddresses(q) {
+  q = (q || "").trim();
+  if (q.length < 4) return [];
+  try {
+    const r = await fetch("https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/suggest?f=json&countryCode=USA&maxSuggestions=6&text=" + encodeURIComponent(q));
+    const j = await r.json();
+    const s = (j.suggestions || []).map((x) => x.text).filter(Boolean);
+    if (s.length) return s;
+  } catch {}
+  try {
+    const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=us&q=" + encodeURIComponent(q));
+    const j = await r.json();
+    return j.map((x) => x.display_name);
+  } catch { return []; }
+}
+function attachAutocomplete(input) {
+  if (!input || input.dataset.ac) return; input.dataset.ac = "1";
+  const wrap = document.createElement("div"); wrap.className = "ac-wrap";
+  input.parentNode.insertBefore(wrap, input); wrap.appendChild(input);
+  const list = document.createElement("div"); list.className = "ac-list"; list.style.display = "none"; wrap.appendChild(list);
+  let timer = null, seq = 0;
+  const hide = () => { list.style.display = "none"; };
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const my = ++seq;
+      const items = await suggestAddresses(input.value);
+      if (my !== seq || document.activeElement !== input) return;
+      if (!items.length) { hide(); return; }
+      list.innerHTML = items.map((t) => `<div class="ac-item">${esc(t)}</div>`).join("");
+      list.querySelectorAll(".ac-item").forEach((el, i) => el.addEventListener("mousedown", (ev) => { ev.preventDefault(); input.value = items[i]; hide(); }));
+      list.style.display = "block";
+    }, 300);
+  });
+  input.addEventListener("blur", () => setTimeout(hide, 150));
+  input.setAttribute("autocomplete", "off");
+}
 async function geocode(address) {
   // 1) ArcGIS World geocoder — far better US house-number coverage than
   // OpenStreetMap for new subdivisions (verified: 25500 Grassy Meadow Dr,
@@ -139,6 +178,7 @@ function homeView() {
     <p><button type="submit">Create party &amp; get my neighbor link →</button></p>
     <p class="muted" id="ev-msg"></p>
   </form></div>`;
+  attachAutocomplete(document.getElementById("f-addr"));
   document.getElementById("ev-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const msg = document.getElementById("ev-msg"); msg.textContent = "Finding your address on the map…";
@@ -254,6 +294,7 @@ async function offerView(ref) {
     <label>Notes (optional)</label><textarea id="o-notes" rows="2" placeholder="e.g. Left side of driveway, please don't block the garage"></textarea>
     <p><button type="submit">Offer my spot →</button></p><p class="muted" id="of-msg"></p></form>
     <div id="of-done"></div></div>`;
+  attachAutocomplete(document.getElementById("o-addr"));
   drawMap("map", [{ lat: ev.lat, lng: ev.lng, label: "Party: " + ev.address }]);
   document.getElementById("of-form").addEventListener("submit", async (e) => {
     e.preventDefault();

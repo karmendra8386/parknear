@@ -15,3 +15,10 @@ button.secondary,.btn.secondary{background:#e2e8f0;color:#17202a}button.warn{bac
 .muted{color:#64748b;font-size:14px}.big{font-size:22px;font-weight:800}.code{font-size:30px;font-weight:900;letter-spacing:4px;background:#fef3c7;border:2px dashed #b45309;border-radius:12px;padding:12px;text-align:center}
 .linkbox{word-break:break-all;background:#f1f5f9;border-radius:9px;padding:10px;font-size:13px}
 footer{max-width:880px;margin:0 auto;padding:18px;color:#64748b;font-size:13px}
+
+/* address autocomplete */
+.ac-wrap { position: relative; }
+.ac-list { position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; background: #fff; border: 1.5px solid #d7deea; border-radius: 10px; z-index: 60; overflow: hidden; box-shadow: 0 10px 30px rgba(11,37,69,.18); }
+.ac-item { padding: 10px 12px; cursor: pointer; font-size: 14px; color: #0B2545; border-bottom: 1px solid #eef1f6; }
+.ac-item:last-child { border-bottom: none; }
+.ac-item:hover, .ac-item:active { background: #eef4ff; }
