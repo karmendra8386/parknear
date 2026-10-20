@@ -421,6 +421,11 @@ async function sha256Hex(text) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+const adminState = { tab: "parties", eventId: null, offerFilter: "all" };
+const todayStr = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+const evStatus = (ev) => ev.party_date === todayStr() ? "today" : (ev.party_date > todayStr() ? "upcoming" : "past");
+const statusChip = (st) => st === "today" ? `<span class="badge">TODAY</span>` : st === "upcoming" ? `<span class="badge amber">UPCOMING</span>` : `<span class="badge" style="background:#e2e8f0;color:#475569">PAST</span>`;
+
 async function adminView() {
   const pinHash = (CFG.adminPinHash || "").trim();
   if (!LIVE) { $app.innerHTML = `<div class="card"><p>The admin page needs Live Mode.</p></div>`; return; }
@@ -438,33 +443,89 @@ async function adminView() {
     return;
   }
   const events = await db.listAllEvents();
-  let totOffers = 0, totClaims = 0;
-  const cards = [];
+  const data = new Map();
+  let totOffers = 0, totClaims = 0, totLocked = 0;
   for (const ev of events) {
     const offers = await db.listOffers(ev.id);
     const claims = await db.listClaims(ev.id);
-    totOffers += offers.length; totClaims += claims.length;
-    const lockedN = offers.filter((o) => o.status === "locked").length;
-    cards.push(`<div class="card"><span class="badge">${esc(ev.party_date || "")} · ${esc(ev.time_from || "")}–${esc(ev.time_to || "")}</span>
+    data.set(ev.id, { offers, claims });
+    totOffers += offers.length; totClaims += claims.length; totLocked += offers.filter((o) => o.status === "locked").length;
+  }
+  const counts = { today: 0, upcoming: 0, past: 0 };
+  events.forEach((ev) => counts[evStatus(ev)]++);
+  const head = `<div class="card"><div class="big">🛠️ ParkNear Admin</div>
+    <div class="statrow">
+      <div class="stat"><div class="statnum">${events.length}</div><div class="statlbl">Parties</div></div>
+      <div class="stat"><div class="statnum">${counts.today + counts.upcoming}</div><div class="statlbl">Today + upcoming</div></div>
+      <div class="stat"><div class="statnum">${totOffers}</div><div class="statlbl">Offers (${totLocked} locked)</div></div>
+      <div class="stat"><div class="statnum">${totClaims}</div><div class="statlbl">Guest claims</div></div>
+    </div>
+    <p><button class="secondary" id="admin-refresh">↻ Refresh</button> <button class="secondary" id="admin-lock">Lock admin</button></p></div>`;
+  const tabs = `<div class="card tabbar">
+      <button data-tab="parties" class="${adminState.tab === "parties" && !adminState.eventId ? "" : "secondary"}">🎉 Parties</button>
+      <button data-tab="offers" class="${adminState.tab === "offers" ? "" : "secondary"}">🙋 Offers</button>
+      <button data-tab="claims" class="${adminState.tab === "claims" ? "" : "secondary"}">🎟️ Claims</button>
+    </div>`;
+  let body = "";
+  if (adminState.eventId) {
+    const ev = events.find((e) => e.id === adminState.eventId);
+    if (!ev) { adminState.eventId = null; return adminView(); }
+    const { offers, claims } = data.get(ev.id);
+    body = `<div class="card"><p><button class="secondary" id="admin-back">← All parties</button></p>
+      <span class="badge">${esc(ev.party_date || "")} · ${esc(ev.time_from || "")}–${esc(ev.time_to || "")}</span> ${statusChip(evStatus(ev))}
       <div class="big">${esc(ev.host_name)}'s party</div>
       <p class="muted">${esc(ev.address)} · needs ${ev.needed} spots · verification: ${esc(ev.verification || "both")}${ev.email ? " · host email " + esc(ev.email) : ""}${ev.phone ? " · " + esc(ev.phone) : ""}</p>
       <p><a class="btn secondary" href="#/host/${ev.id}">Open host dashboard</a> <button class="danger" data-del-event="${ev.id}">Delete party</button></p>
-      <h3>Offers (${offers.length}, ${lockedN} locked)</h3>
+      <h3>🙋 Offers (${offers.length})</h3>
       ${offers.length ? offers.map((o) => `<div class="spot"><strong>${esc(o.neighbor_name)}</strong> — ${esc(o.status)} — ${esc(o.address)} · ${o.spots} spot(s)${o.email ? " · " + esc(o.email) : ""}${o.phone ? " · " + esc(o.phone) : ""} · passcode ${esc(o.code || "—")}
         <br><button class="secondary" data-toggle-offer="${o.id}" data-ev="${ev.id}">${o.status === "locked" ? "Unlock" : "Accept & lock"}</button> <button class="danger" data-del-offer="${o.id}">Delete offer</button></div>`).join("") : `<p class="muted">No offers yet.</p>`}
-      <h3>Guest claims (${claims.length})</h3>
+      <h3>🎟️ Guest claims (${claims.length})</h3>
       ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.guest_name)}</strong> → ${esc(c.address)} · ${esc(c.spot_label || "")}${c.email ? " · " + esc(c.email) : ""}${c.phone ? " · " + esc(c.phone) : ""} · passcode ${esc(c.code || "—")}
         <br><button class="danger" data-del-claim="${c.id}">Delete claim</button></div>`).join("") : `<p class="muted">No claims yet.</p>`}
-    </div>`);
+    </div>`;
+  } else if (adminState.tab === "offers") {
+    const f = adminState.offerFilter;
+    let rows = [];
+    events.forEach((ev) => data.get(ev.id).offers.forEach((o) => rows.push({ ev, o })));
+    if (f !== "all") rows = rows.filter(({ o }) => o.status === f);
+    body = `<div class="card"><h2>🙋 All offers (${rows.length})</h2>
+      <p><button data-ofilter="all" class="${f === "all" ? "" : "secondary"}">All</button> <button data-ofilter="offered" class="${f === "offered" ? "" : "secondary"}">Offered</button> <button data-ofilter="locked" class="${f === "locked" ? "" : "secondary"}">Locked</button></p>
+      ${rows.length ? rows.map(({ ev, o }) => `<div class="spot"><strong>${esc(o.neighbor_name)}</strong> — ${esc(o.status)} — ${esc(o.address)} · ${o.spots} spot(s) · passcode ${esc(o.code || "—")}${o.email ? " · " + esc(o.email) : ""}
+        <br><span class="muted">Party: ${esc(ev.host_name)} · ${esc(ev.party_date)}</span> <button class="secondary" data-open-event="${ev.id}">Open party</button> <button class="secondary" data-toggle-offer="${o.id}" data-ev="${ev.id}">${o.status === "locked" ? "Unlock" : "Accept & lock"}</button> <button class="danger" data-del-offer="${o.id}">Delete</button></div>`).join("") : `<p class="muted">No offers in this category.</p>`}</div>`;
+  } else if (adminState.tab === "claims") {
+    let rows = [];
+    events.forEach((ev) => data.get(ev.id).claims.forEach((c) => rows.push({ ev, c })));
+    body = `<div class="card"><h2>🎟️ All guest claims (${rows.length})</h2>
+      ${rows.length ? rows.map(({ ev, c }) => `<div class="spot"><strong>${esc(c.guest_name)}</strong> → ${esc(c.address)} · ${esc(c.spot_label || "")} · passcode ${esc(c.code || "—")}${c.email ? " · " + esc(c.email) : ""}${c.phone ? " · " + esc(c.phone) : ""}
+        <br><span class="muted">Party: ${esc(ev.host_name)} · ${esc(ev.party_date)}</span> <button class="secondary" data-open-event="${ev.id}">Open party</button> <button class="danger" data-del-claim="${c.id}">Delete claim</button></div>`).join("") : `<p class="muted">No claims yet.</p>`}</div>`;
+  } else {
+    const groups = [["today", "📅 Today"], ["upcoming", "🔜 Upcoming"], ["past", "🗂️ Past"]];
+    body = groups.map(([key, label]) => {
+      const list = events.filter((ev) => evStatus(ev) === key)
+        .sort((a, b) => key === "past" ? b.party_date.localeCompare(a.party_date) : a.party_date.localeCompare(b.party_date));
+      if (!list.length) return "";
+      return `<div class="card"><h2>${label} (${list.length})</h2>` + list.map((ev) => {
+        const { offers, claims } = data.get(ev.id);
+        const lockedN = offers.filter((o) => o.status === "locked").length;
+        return `<div class="spot"><strong>${esc(ev.host_name)}</strong> · ${esc(ev.party_date)} · ${esc(ev.time_from || "")}–${esc(ev.time_to || "")} ${statusChip(key)}
+          <br><span class="muted">${esc(ev.address)}</span>
+          <br><span class="muted">Needs ${ev.needed} · 🙋 ${offers.length} offers (${lockedN} locked) · 🎟️ ${claims.length} claims</span>
+          <br><button class="secondary" data-open-event="${ev.id}">View & manage →</button> <a class="btn secondary" href="#/host/${ev.id}">Host dashboard</a></div>`;
+      }).join("") + `</div>`;
+    }).join("") || `<div class="card"><p>No parties yet.</p></div>`;
   }
-  $app.innerHTML = `<div class="card"><div class="big">🛠️ ParkNear Admin</div>
-    <p class="muted">${events.length} parties · ${totOffers} offers · ${totClaims} claims — newest party dates first. Keep this page and the PIN private.</p>
-    <p><button class="secondary" id="admin-refresh">↻ Refresh</button> <button class="secondary" id="admin-lock">Lock admin</button></p></div>` + (cards.join("") || `<div class="card"><p>No parties yet.</p></div>`);
+  $app.innerHTML = head + tabs + body;
   document.getElementById("admin-refresh").addEventListener("click", adminView);
-  document.getElementById("admin-lock").addEventListener("click", () => { sessionStorage.removeItem("parknear_admin"); adminView(); });
+  document.getElementById("admin-lock").addEventListener("click", () => { sessionStorage.removeItem("parknear_admin"); adminState.eventId = null; adminView(); });
+  $app.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { adminState.tab = b.dataset.tab; adminState.eventId = null; adminView(); }));
+  $app.querySelectorAll("[data-ofilter]").forEach((b) => b.addEventListener("click", () => { adminState.offerFilter = b.dataset.ofilter; adminView(); }));
+  $app.querySelectorAll("[data-open-event]").forEach((b) => b.addEventListener("click", () => { adminState.eventId = b.dataset.openEvent; adminView(); }));
+  const back = document.getElementById("admin-back");
+  if (back) back.addEventListener("click", () => { adminState.eventId = null; adminView(); });
   $app.querySelectorAll("[data-del-event]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm("Delete this whole party, including its offers and claims? This cannot be undone.")) return;
-    try { await db.deleteEvent(b.dataset.delEvent); } catch (e) { alert(e.message); return; } adminView();
+    try { await db.deleteEvent(b.dataset.delEvent); } catch (e) { alert(e.message); return; }
+    adminState.eventId = null; adminView();
   }));
   $app.querySelectorAll("[data-del-offer]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm("Delete this offer?")) return;
