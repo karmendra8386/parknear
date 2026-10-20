@@ -7,5 +7,8 @@ window.PARK_CONFIG = {
   // Automatic detail emails via EmailJS (connected 2026-10-20): free account
   // under karmendra8386@gmail.com, Gmail service "ParkNear Gmail" sends from
   // his Gmail. The public key is designed to be embedded in frontend code.
-  emailjs: { publicKey: "a2hLXf-w6Rhvu8ho5", serviceId: "service_bfvbe4o", templateId: "template_ziicn5x" }
+  emailjs: { publicKey: "a2hLXf-w6Rhvu8ho5", serviceId: "service_bfvbe4o", templateId: "template_ziicn5x" },
+  // Admin page (#/admin) gate: SHA-256 hash of the admin PIN. Empty = admin
+  // page stays locked until the owner sets a PIN.
+  adminPinHash: ""
 };

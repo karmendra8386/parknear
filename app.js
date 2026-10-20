@@ -114,6 +114,10 @@ const db = {
   async addClaim(c) { if (!LIVE) return c; const [row] = await sb("claims", { method: "POST", body: JSON.stringify(c) }); return row; },
   async listClaims(eventId) { if (!LIVE) return claimsFor(eventId); return sb("claims?event_id=eq." + encodeURIComponent(eventId) + "&select=*&order=created_at.asc"); },
   async getOffer(id) { if (!LIVE) return null; const rows = await sb("offers?id=eq." + encodeURIComponent(id) + "&select=*"); return rows[0] || null; },
+  async listAllEvents() { if (!LIVE) return myEvents(); return sb("events?select=*&order=party_date.desc,created_at.desc"); },
+  async deleteEvent(id) { if (!LIVE) return; return sb("events?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
+  async deleteOffer(id) { if (!LIVE) return; return sb("offers?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
+  async deleteClaim(id) { if (!LIVE) return; return sb("claims?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
   async setVerification(ev, mode) { ev.verification = mode; saveEvent(ev); if (!LIVE) return; return sb("events?id=eq." + encodeURIComponent(ev.id), { method: "PATCH", body: JSON.stringify({ verification: mode }) }); }
 };
 // Emailed details: sent via EmailJS when configured in config.js
@@ -412,6 +416,72 @@ async function neighborView(offerId) {
     <p class="muted">Party at ${ev ? esc(ev.address) : ""}. Keep this page's link private — it shows your claim details.</p></div>`;
 }
 
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function adminView() {
+  const pinHash = (CFG.adminPinHash || "").trim();
+  if (!LIVE) { $app.innerHTML = `<div class="card"><p>The admin page needs Live Mode.</p></div>`; return; }
+  if (!pinHash) { $app.innerHTML = `<div class="card"><div class="big">🔐 Admin</div><p>The admin PIN hasn't been set yet. Ask the app owner to set one, then reload this page.</p></div>`; return; }
+  if (sessionStorage.getItem("parknear_admin") !== "1") {
+    $app.innerHTML = `<div class="card"><div class="big">🔐 Admin sign-in</div>
+      <p class="muted">Enter the admin PIN to see and manage all parties, offers, and claims.</p>
+      <input id="admin-pin" type="password" inputmode="numeric" placeholder="Admin PIN" style="max-width:220px">
+      <p><button id="admin-go">Unlock admin →</button></p><p class="muted" id="admin-msg"></p></div>`;
+    document.getElementById("admin-go").addEventListener("click", async () => {
+      const v = document.getElementById("admin-pin").value.trim();
+      if ((await sha256Hex(v)) === pinHash) { sessionStorage.setItem("parknear_admin", "1"); adminView(); }
+      else document.getElementById("admin-msg").textContent = "Wrong PIN — try again.";
+    });
+    return;
+  }
+  const events = await db.listAllEvents();
+  let totOffers = 0, totClaims = 0;
+  const cards = [];
+  for (const ev of events) {
+    const offers = await db.listOffers(ev.id);
+    const claims = await db.listClaims(ev.id);
+    totOffers += offers.length; totClaims += claims.length;
+    const lockedN = offers.filter((o) => o.status === "locked").length;
+    cards.push(`<div class="card"><span class="badge">${esc(ev.party_date || "")} · ${esc(ev.time_from || "")}–${esc(ev.time_to || "")}</span>
+      <div class="big">${esc(ev.host_name)}'s party</div>
+      <p class="muted">${esc(ev.address)} · needs ${ev.needed} spots · verification: ${esc(ev.verification || "both")}${ev.email ? " · host email " + esc(ev.email) : ""}${ev.phone ? " · " + esc(ev.phone) : ""}</p>
+      <p><a class="btn secondary" href="#/host/${ev.id}">Open host dashboard</a> <button class="danger" data-del-event="${ev.id}">Delete party</button></p>
+      <h3>Offers (${offers.length}, ${lockedN} locked)</h3>
+      ${offers.length ? offers.map((o) => `<div class="spot"><strong>${esc(o.neighbor_name)}</strong> — ${esc(o.status)} — ${esc(o.address)} · ${o.spots} spot(s)${o.email ? " · " + esc(o.email) : ""}${o.phone ? " · " + esc(o.phone) : ""} · passcode ${esc(o.code || "—")}
+        <br><button class="secondary" data-toggle-offer="${o.id}" data-ev="${ev.id}">${o.status === "locked" ? "Unlock" : "Accept & lock"}</button> <button class="danger" data-del-offer="${o.id}">Delete offer</button></div>`).join("") : `<p class="muted">No offers yet.</p>`}
+      <h3>Guest claims (${claims.length})</h3>
+      ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.guest_name)}</strong> → ${esc(c.address)} · ${esc(c.spot_label || "")}${c.email ? " · " + esc(c.email) : ""}${c.phone ? " · " + esc(c.phone) : ""} · passcode ${esc(c.code || "—")}
+        <br><button class="danger" data-del-claim="${c.id}">Delete claim</button></div>`).join("") : `<p class="muted">No claims yet.</p>`}
+    </div>`);
+  }
+  $app.innerHTML = `<div class="card"><div class="big">🛠️ ParkNear Admin</div>
+    <p class="muted">${events.length} parties · ${totOffers} offers · ${totClaims} claims — newest party dates first. Keep this page and the PIN private.</p>
+    <p><button class="secondary" id="admin-refresh">↻ Refresh</button> <button class="secondary" id="admin-lock">Lock admin</button></p></div>` + (cards.join("") || `<div class="card"><p>No parties yet.</p></div>`);
+  document.getElementById("admin-refresh").addEventListener("click", adminView);
+  document.getElementById("admin-lock").addEventListener("click", () => { sessionStorage.removeItem("parknear_admin"); adminView(); });
+  $app.querySelectorAll("[data-del-event]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("Delete this whole party, including its offers and claims? This cannot be undone.")) return;
+    try { await db.deleteEvent(b.dataset.delEvent); } catch (e) { alert(e.message); return; } adminView();
+  }));
+  $app.querySelectorAll("[data-del-offer]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("Delete this offer?")) return;
+    try { await db.deleteOffer(b.dataset.delOffer); } catch (e) { alert(e.message); return; } adminView();
+  }));
+  $app.querySelectorAll("[data-del-claim]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("Delete this guest claim? The spot becomes available again.")) return;
+    try { await db.deleteClaim(b.dataset.delClaim); } catch (e) { alert(e.message); return; } adminView();
+  }));
+  $app.querySelectorAll("[data-toggle-offer]").forEach((b) => b.addEventListener("click", async () => {
+    const offers = await db.listOffers(b.dataset.ev);
+    const o = offers.find((x) => String(x.id) === b.dataset.toggleOffer);
+    if (!o) return;
+    try { await db.setOfferStatus(o.id, o.status === "locked" ? "offered" : "locked"); } catch (e) { alert(e.message); return; } adminView();
+  }));
+}
+
 function claimImportView(ref) {
   let data = null; try { data = dec(ref); } catch {}
   if (!data || !data.claim) { $app.innerHTML = `<div class="card"><p>This claim link isn't valid.</p></div>`; return; }
@@ -431,6 +501,7 @@ async function route() {
     else if (parts[0] === "e") await offerView(parts.slice(1).join("/"));
     else if (parts[0] === "g") await guestView(parts.slice(1).join("/"));
     else if (parts[0] === "o") await neighborView(parts[1]);
+    else if (parts[0] === "admin") await adminView();
     else if (parts[0] === "import") importView(parts.slice(1).join("/"));
     else if (parts[0] === "claim") claimImportView(parts.slice(1).join("/"));
     else homeView();
