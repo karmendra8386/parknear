@@ -3,7 +3,7 @@
 Borrow a neighbor's driveway spot for your event. No app to install, no account for neighbors or guests.
 
 **Flow**
-1. **Host** creates a event (name, address, date, spots needed) → gets a *neighbor link*.
+1. **Host** creates an event (name, address, date, spots needed) → gets a *neighbor link*.
 2. **Host** posts the link in the WhatsApp group. **Neighbors** open it, offer 1–6 driveway spots (address is pinned on a free OpenStreetMap; distance to the event is calculated automatically).
 3. **Host dashboard** lists offers closest-first. Host accepts/locks spots until the event is covered → gets a *guest link* (each locked spot carries a 4-digit passcode).
 4. **Guests** open the guest link, claim a spot, get the address, a Google Maps navigation button, and the passcode to show the neighbor.

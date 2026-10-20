@@ -155,8 +155,8 @@ function drawMap(elId, points) {
 // ---------- views ----------
 function homeView() {
   $app.innerHTML = `
-  <div class="card"><div class="big">Having a event? Borrow driveway spots from your neighbors.</div>
-  <p class="muted">Create a event, post one link in your WhatsApp group, neighbors offer spots, you lock the closest ones, guests claim them with a passcode. No app to install, no account to create.</p></div>
+  <div class="card"><div class="big">Having an event? Borrow driveway spots from your neighbors.</div>
+  <p class="muted">Create an event, post one link in your WhatsApp group, neighbors offer spots, you lock the closest ones, guests claim them with a passcode. No app to install, no account to create.</p></div>
   <div class="card"><h2>1 · Host — create your event</h2>
   <form id="ev-form">
     <label>Your name</label><input id="f-host" required placeholder="e.g. Karmendra Pandey">
@@ -214,7 +214,7 @@ const waShare = (text) => "https://wa.me/?text=" + encodeURIComponent(text);
 
 async function hostView(ref) {
   const events = myEvents();
-  if (!events.length) { $app.innerHTML = `<div class="card"><h2>Host dashboard</h2><p>No event on this device yet.</p><p><a class="btn" href="#/">Create a event</a></p></div>`; return; }
+  if (!events.length) { $app.innerHTML = `<div class="card"><h2>Host dashboard</h2><p>No event on this device yet.</p><p><a class="btn" href="#/">Create an event</a></p></div>`; return; }
   const ev = ref ? events.find((e) => e.id === ref) || await resolveEvent(ref) : events[events.length - 1];
   if (!ev) { $app.innerHTML = `<div class="card"><p>Event not found on this device.</p></div>`; return; }
   let offers = await db.listOffers(ev.id);
@@ -236,7 +236,7 @@ async function hostView(ref) {
       ${mode !== "name" && c ? `<br><span class="muted">Passcode:</span> <strong>${esc(c.code || s.code)}</strong>` : ""}</div>`;
   }).join("");
   const oLink = offerLink(ev), gLink = guestLink(ev, spots);
-  const waText = `Hi neighbors! 🙏 We're hosting a event on ${ev.party_date} (${ev.time_from}–${ev.time_to}) and need ${ev.needed} extra parking spots. If your driveway is free, please offer a spot here (takes 30 seconds): ${oLink}`;
+  const waText = `Hi neighbors! 🙏 We're hosting an event on ${ev.party_date} (${ev.time_from}–${ev.time_to}) and need ${ev.needed} extra parking spots. If your driveway is free, please offer a spot here (takes 30 seconds): ${oLink}`;
   $app.innerHTML = `
   <div class="card"><span class="badge">${esc(ev.party_date)} · ${esc(ev.time_from)}–${esc(ev.time_to)}</span>
     <div class="big">${esc(ev.host_name)}'s event</div><p class="muted">${esc(ev.address)} · needs ${ev.needed} spots · <strong>${lockedSpots} locked</strong></p>
@@ -286,7 +286,7 @@ async function offerView(ref) {
   $app.innerHTML = `
   <div class="card"><span class="badge">${esc(ev.party_date)} · ${esc(ev.time_from)}–${esc(ev.time_to)}</span>
     <div class="big">Can you offer a driveway spot?</div>
-    <p><strong>${esc(ev.host_name)}</strong> at ${esc(ev.address)} is hosting a event and needs ${ev.needed} spots.${ev.notes ? " Note: " + esc(ev.notes) : ""}</p>
+    <p><strong>${esc(ev.host_name)}</strong> at ${esc(ev.address)} is hosting an event and needs ${ev.needed} spots.${ev.notes ? " Note: " + esc(ev.notes) : ""}</p>
     <div id="map"></div></div>
   <div class="card"><h2>Offer your spot</h2><form id="of-form">
     <label>Your name</label><input id="o-name" required placeholder="Your name">
