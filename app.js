@@ -362,6 +362,8 @@ async function offerView(ref) {
     emailDetails(offer.email, offer.neighbor_name, `Your ParkNear parking offer — ${ev.party_date}`, detailsText);
     if (LIVE) {
       try { await db.addOffer(offer); } catch (err) { msg.textContent = err.message; return; }
+      if (ev.email) emailDetails(ev.email, ev.host_name, `New parking offer for your event — ${ev.party_date}`,
+        `${offer.neighbor_name} just offered ${offer.spots} parking spot(s) at ${offer.address} (${distLabel(d)} from your event at ${ev.address}) for your event on ${ev.party_date}, ${ev.time_from}–${ev.time_to}.\nOpen your host dashboard to review it and lock the spots you want: ${base()}#/host/${ev.id}`);
       document.getElementById("of-done").innerHTML = `<div class="card"><div class="big">Thank you! 🎉</div><p>Your ${offer.spots} spot(s) — ${distLabel(d)} from the event — are offered. ${esc(ev.host_name)} will lock the closest spots.</p>
         ${mode !== "name" ? `<p class="muted">Your passcode — your guest will show you this:</p><div class="code">${offer.code}</div>` : `<p>Your guest will confirm themselves <strong>by name</strong> — the host chose name verification for this event.</p>`}
         <p><strong>Your personal offer page</strong> — bookmark it to see which guest claimed your spot (their name${mode !== "name" ? " and the passcode" : ""}):</p><p class="linkbox">${myLink}</p>
@@ -392,7 +394,7 @@ async function guestView(ref) {
   if (LIVE) {
     ev = await db.getEvent(ref);
     if (ev) { const offers = (await db.listOffers(ev.id)).filter((o) => o.status === "locked");
-      spots = offers.flatMap((o) => Array.from({ length: o.spots || 1 }, (_, i) => ({ offer_id: o.id, neighbor: o.neighbor_name, address: o.address, lat: o.lat, lng: o.lng, label: o.spots > 1 ? `Spot ${i + 1} of ${o.spots}` : "Driveway spot", code: o.code })));
+      spots = offers.flatMap((o) => Array.from({ length: o.spots || 1 }, (_, i) => ({ offer_id: o.id, neighbor: o.neighbor_name, nemail: o.email, address: o.address, lat: o.lat, lng: o.lng, label: o.spots > 1 ? `Spot ${i + 1} of ${o.spots}` : "Driveway spot", code: o.code })));
       const claims = await db.listClaims(ev.id);
       spots.forEach((s) => { const taken = claims.find((c) => c.address === s.address && c.spot_label === s.label); if (taken) s.takenBy = taken.guest_name; });
     }
@@ -424,7 +426,12 @@ async function guestView(ref) {
     const gPhone = document.getElementById("g-phone-" + i).value.trim();
     const claim = { id: uid(), event_id: ev.id, guest_name: name, email: gEmail, phone: gPhone, address: s.address, spot_label: s.label, code: s.code };
     let notifyHtml = "";
-    if (LIVE) { try { await db.addClaim(claim); } catch (e) { alert(e.message); return; } }
+    if (LIVE) { try { await db.addClaim(claim); } catch (e) { alert(e.message); return; }
+      if (ev.email) emailDetails(ev.email, ev.host_name, `A guest claimed a parking spot — ${ev.party_date}`,
+        `${name} just claimed the spot at ${s.address} (${s.label}, offered by ${s.neighbor}) for your event on ${ev.party_date}, ${ev.time_from}–${ev.time_to}.\nGuest: ${name} · ${gEmail}${gPhone ? " · " + gPhone : ""}${gmode !== "name" ? `\nPasscode the guest will show: ${s.code}` : ""}\nSee all parking assignments: ${base()}#/host/${ev.id}`);
+      if (s.nemail) emailDetails(s.nemail, s.neighbor, `Your parking spot was claimed — ${ev.party_date}`,
+        `${gmode === "passcode" ? "A guest" : name} claimed your spot at ${s.address} for ${ev.host_name}'s event on ${ev.party_date} (${ev.time_from}–${ev.time_to}).${gmode !== "name" ? `\nThe passcode they will show you: ${s.code}` : `\nGuest name to expect: ${name}`}\nYour offer page: ${base()}#/o/${s.offer_id}`);
+    }
     else {
       const taken = store.get("parknear_taken_" + ev.id, []); taken.push(spots.indexOf(s)); store.set("parknear_taken_" + ev.id, taken);
       const claimLink = `${base()}#/claim/${enc({ ev, claim })}`;
