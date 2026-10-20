@@ -118,7 +118,8 @@ const db = {
   async deleteEvent(id) { if (!LIVE) return; return sb("events?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
   async deleteOffer(id) { if (!LIVE) return; return sb("offers?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
   async deleteClaim(id) { if (!LIVE) return; return sb("claims?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
-  async setVerification(ev, mode) { ev.verification = mode; saveEvent(ev); if (!LIVE) return; return sb("events?id=eq." + encodeURIComponent(ev.id), { method: "PATCH", body: JSON.stringify({ verification: mode }) }); }
+  async setVerification(ev, mode) { ev.verification = mode; saveEvent(ev); if (!LIVE) return; return sb("events?id=eq." + encodeURIComponent(ev.id), { method: "PATCH", body: JSON.stringify({ verification: mode }) }); },
+  async setEventPin(ev, hash) { ev.host_pin_hash = hash; saveEvent(ev); if (!LIVE) return; return sb("events?id=eq." + encodeURIComponent(ev.id), { method: "PATCH", body: JSON.stringify({ host_pin_hash: hash }) }); }
 };
 // Emailed details: sent via EmailJS when configured in config.js
 // (window.PARK_CONFIG.emailjs = {publicKey, serviceId, templateId}).
@@ -178,6 +179,7 @@ function homeView() {
       <option value="passcode">Passcode only — names stay private, the 4-digit passcode is the proof</option>
     </select>
     <p class="muted">At least one is always on — you can't turn both off, so every parked car can be verified.</p>
+    <label>Host PIN (required — only someone with this PIN can open your host dashboard and accept offers)</label><input id="f-pin" type="password" inputmode="numeric" maxlength="8" required placeholder="4–8 digits — pick one you'll remember">
     <label>Note for neighbors (optional)</label><textarea id="f-notes" rows="2" placeholder="e.g. Diwali event, thank you! Please keep the garage side clear."></textarea>
     <p><button type="submit">Create event &amp; get my neighbor link →</button></p>
     <p class="muted" id="ev-msg"></p>
@@ -189,13 +191,17 @@ function homeView() {
     const addr = document.getElementById("f-addr").value.trim();
     let geo = null; try { geo = await geocode(addr); } catch {}
     if (!geo) { msg.textContent = "Could not pin that address. Check the spelling (add city, state and ZIP) and try again."; return; }
+    const pinVal = document.getElementById("f-pin").value.trim();
+    if (!/^\d{4,8}$/.test(pinVal)) { msg.textContent = "Your host PIN must be 4–8 digits."; return; }
     const ev = { id: uid(), host_name: document.getElementById("f-host").value.trim(), address: addr, lat: geo.lat, lng: geo.lng,
       party_date: document.getElementById("f-date").value, needed: +document.getElementById("f-needed").value,
       time_from: document.getElementById("f-from").value, time_to: document.getElementById("f-to").value,
       email: document.getElementById("f-email").value.trim(), verification: document.getElementById("f-verification").value,
+      host_pin_hash: await sha256Hex(pinVal),
       phone: document.getElementById("f-phone").value.trim(), notes: document.getElementById("f-notes").value.trim() };
     try { await db.createEvent(ev); } catch (err) { msg.textContent = err.message; return; }
     saveEvent(ev);
+    sessionStorage.setItem("parknear_host_" + ev.id, "1");
     emailDetails(ev.email, ev.host_name, `Your ParkNear event — ${ev.party_date}`,
       `Hi ${ev.host_name}, your event is created.\nWhen: ${ev.party_date}, ${ev.time_from}–${ev.time_to}\nWhere: ${ev.address}\nSpots needed: ${ev.needed}\nShare this link with neighbors: ${offerLink(ev)}\nYour private host dashboard (do not share): ${base()}#/host/${ev.id}`);
     location.hash = "#/host/" + ev.id;
@@ -214,9 +220,20 @@ const waShare = (text) => "https://wa.me/?text=" + encodeURIComponent(text);
 
 async function hostView(ref) {
   const events = myEvents();
-  if (!events.length) { $app.innerHTML = `<div class="card"><h2>Host dashboard</h2><p>No event on this device yet.</p><p><a class="btn" href="#/">Create an event</a></p></div>`; return; }
   const ev = ref ? events.find((e) => e.id === ref) || await resolveEvent(ref) : events[events.length - 1];
-  if (!ev) { $app.innerHTML = `<div class="card"><p>Event not found on this device.</p></div>`; return; }
+  if (!ev) { $app.innerHTML = `<div class="card"><h2>Host dashboard</h2><p>No event found. If you're the host, open the dashboard from the device where you created the event, or create a new one.</p><p><a class="btn" href="#/">Create an event</a></p></div>`; return; }
+  if (ev.host_pin_hash && sessionStorage.getItem("parknear_host_" + ev.id) !== "1") {
+    $app.innerHTML = `<div class="card"><div class="big">🔐 Host sign-in</div>
+      <p>This event's host dashboard is protected by a host PIN. Enter the PIN to manage the event and accept offers.</p>
+      <input id="host-pin" type="password" inputmode="numeric" maxlength="8" placeholder="Host PIN" style="max-width:220px">
+      <p><button id="host-pin-go">Unlock dashboard →</button></p><p class="muted" id="host-pin-msg"></p></div>`;
+    document.getElementById("host-pin-go").addEventListener("click", async () => {
+      const v = document.getElementById("host-pin").value.trim();
+      if ((await sha256Hex(v)) === ev.host_pin_hash) { sessionStorage.setItem("parknear_host_" + ev.id, "1"); hostView(ev.id); }
+      else document.getElementById("host-pin-msg").textContent = "Wrong PIN — only the host can open this dashboard.";
+    });
+    return;
+  }
   let offers = await db.listOffers(ev.id);
   offers = offers.map((o) => ({ ...o, dist: haversineMi(ev.lat, ev.lng, o.lat, o.lng) })).sort((a, b) => (a.dist ?? 99) - (b.dist ?? 99));
   const claims = await db.listClaims(ev.id);
@@ -249,6 +266,15 @@ async function hostView(ref) {
       <option value="name" ${ev.verification === "name" ? "selected" : ""}>Names only — no passcode</option>
       <option value="passcode" ${ev.verification === "passcode" ? "selected" : ""}>Passcode only — names stay private</option>
     </select>
+    <h3>Host PIN</h3>
+    ${ev.host_pin_hash ? `<p class="muted">This dashboard is protected by a host PIN ✓ — only someone with the PIN can open it and accept offers.</p>
+      <div class="row"><div><label>Current PIN</label><input id="pin-cur" type="password" inputmode="numeric" maxlength="8"></div>
+      <div><label>New PIN (4–8 digits)</label><input id="pin-new" type="password" inputmode="numeric" maxlength="8"></div></div>
+      <p><button class="secondary" id="pin-change">Change PIN</button></p>`
+    : `<p class="muted">⚠️ This event has no host PIN yet — anyone with this dashboard link could manage it. Set one now:</p>
+      <label>New host PIN (4–8 digits)</label><input id="pin-new" type="password" inputmode="numeric" maxlength="8" style="max-width:220px">
+      <p><button class="secondary" id="pin-set">Set host PIN</button></p>`}
+    <p class="muted" id="pin-msg"></p>
     <h3>2 · ✅ Share THIS link with neighbors — post it in your WhatsApp group</h3>
     <p class="linkbox">${esc(oLink)}</p>
     <p><a class="btn" target="_blank" href="${waShare(waText)}">Share on WhatsApp</a>
@@ -278,6 +304,23 @@ async function hostView(ref) {
   }));
   const vSel = document.getElementById("v-mode");
   if (vSel) vSel.addEventListener("change", async () => { try { await db.setVerification(ev, vSel.value); } catch {} hostView(ev.id); });
+  const pinMsg = document.getElementById("pin-msg");
+  const pinSet = document.getElementById("pin-set");
+  if (pinSet) pinSet.addEventListener("click", async () => {
+    const v = document.getElementById("pin-new").value.trim();
+    if (!/^\d{4,8}$/.test(v)) { pinMsg.textContent = "PIN must be 4–8 digits."; return; }
+    try { await db.setEventPin(ev, await sha256Hex(v)); sessionStorage.setItem("parknear_host_" + ev.id, "1"); } catch (e) { pinMsg.textContent = e.message; return; }
+    hostView(ev.id);
+  });
+  const pinChange = document.getElementById("pin-change");
+  if (pinChange) pinChange.addEventListener("click", async () => {
+    const cur = document.getElementById("pin-cur").value.trim();
+    const v = document.getElementById("pin-new").value.trim();
+    if ((await sha256Hex(cur)) !== ev.host_pin_hash) { pinMsg.textContent = "Current PIN doesn't match."; return; }
+    if (!/^\d{4,8}$/.test(v)) { pinMsg.textContent = "New PIN must be 4–8 digits."; return; }
+    try { await db.setEventPin(ev, await sha256Hex(v)); } catch (e) { pinMsg.textContent = e.message; return; }
+    hostView(ev.id);
+  });
 }
 
 async function offerView(ref) {

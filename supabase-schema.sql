@@ -12,6 +12,7 @@ create table if not exists events (
   phone text,
   email text,
   verification text default 'both',
+  host_pin_hash text,
   notes text,
   created_at timestamptz default now()
 );
