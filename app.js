@@ -160,15 +160,15 @@ function homeView() {
   <p class="muted">Create an event, post one link in your WhatsApp group, neighbors offer spots, you lock the closest ones, guests claim them with a passcode. No app to install, no account to create.</p></div>
   <div class="card"><h2>1 · Host — create your event</h2>
   <form id="ev-form">
-    <label>Your name</label><input id="f-host" required placeholder="e.g. Karmendra Pandey">
+    <label>Your name</label><input id="f-host" required placeholder="Enter your name">
     <label>Your home address (event location)</label><input id="f-addr" required placeholder="Street, City, State ZIP">
     <div class="row">
       <div><label>Date</label><input id="f-date" type="date" required></div>
-      <div><label>Parking spots needed</label><input id="f-needed" type="number" min="1" max="100" value="10" required></div>
+      <div><label>Parking spots needed</label><input id="f-needed" type="number" min="1" max="100" placeholder="Enter number" required></div>
     </div>
     <div class="row">
-      <div><label>Guests arrive from</label><input id="f-from" type="time" value="17:00"></div>
-      <div><label>Until</label><input id="f-to" type="time" value="23:00"></div>
+      <div><label>Guests arrive from</label><input id="f-from" type="time" required></div>
+      <div><label>Until</label><input id="f-to" type="time" required></div>
     </div>
     <label>Your email (required — your event details are sent here for reference)</label><input id="f-email" type="email" required placeholder="you@example.com">
     <label>Your mobile (optional — neighbors/guests only see it if you share it)</label><input id="f-phone" type="tel" placeholder="Optional">
