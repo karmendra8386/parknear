@@ -416,7 +416,11 @@ async function hostView(ref) {
   const events = myEvents();
   const ev = ref ? events.find((e) => e.id === ref) || await resolveEvent(ref) : events[events.length - 1];
   if (!ev) { $app.innerHTML = `<div class="card"><h2>Host dashboard</h2><p>No event found. If you're the host, open the dashboard from the device where you created the event, or create a new one.</p><p><a class="btn" href="#/">Create an event</a></p></div>`; return; }
-  if (ev.host_pin_hash && sessionStorage.getItem("parknear_host_" + ev.id) !== "1") {
+  // Signed in at the host home with this event's host email + PIN? Then the
+  // dashboard opens directly — don't ask for the PIN a second time.
+  const homeAuthed = (sessionStorage.getItem("parknear_my_auth") || "").trim().toLowerCase();
+  const ownerSession = !!(ev.email && homeAuthed && homeAuthed === String(ev.email).toLowerCase());
+  if (ev.host_pin_hash && !ownerSession && sessionStorage.getItem("parknear_host_" + ev.id) !== "1") {
     $app.innerHTML = `<div class="card"><div class="big">🔐 Host sign-in</div>
       <p>This event's host dashboard is protected by a host PIN. Enter the PIN to manage the event and accept offers.</p>
       <input id="host-pin" type="password" inputmode="numeric" maxlength="8" placeholder="Host PIN" style="max-width:220px">
