@@ -119,6 +119,7 @@ const db = {
   async deleteEvent(id) { if (!LIVE) return; return sb("events?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
   async deleteOffer(id) { if (!LIVE) return; return sb("offers?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
   async deleteClaim(id) { if (!LIVE) return; return sb("claims?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
+  async updateClaimSpot(id, address, spotLabel) { if (!LIVE) return; return sb("claims?id=eq." + encodeURIComponent(id), { method: "PATCH", body: JSON.stringify({ address, spot_label: spotLabel }) }); },
   async setVerification(ev, mode) { ev.verification = mode; saveEvent(ev); if (!LIVE) return; return sb("events?id=eq." + encodeURIComponent(ev.id), { method: "PATCH", body: JSON.stringify({ verification: mode }) }); },
   async setEventPin(ev, hash) { ev.host_pin_hash = hash; saveEvent(ev); if (!LIVE) return; return sb("events?id=eq." + encodeURIComponent(ev.id), { method: "PATCH", body: JSON.stringify({ host_pin_hash: hash }) }); },
   // One host PIN per host, keyed by email (hosts table, migration v5).
@@ -157,6 +158,28 @@ function notifyLockChange(ev, o, status) {
     emailDetails(ev.email, ev.host_name, `Spot locked for your event — ${ev.party_date} · share your guest link`,
       `Hi ${ev.host_name}, you locked ${o.neighbor_name}'s spot at ${o.address} (${o.spots} spot${o.spots === 1 ? "" : "s"}) for your event on ${ev.party_date} (${ev.time_from}–${ev.time_to}).\n\nSend this link to your guests so they can claim a spot:\n${base()}#/g/${ev.id}\n\nThe same guest link is also on your host dashboard:\n${base()}#/host/${ev.id}`);
   }
+}
+
+// Cancel a parking offer entirely (host from the dashboard, or the neighbor
+// from their own page): the offer and any claims on its spots are removed, and
+// the host, the neighbor, and every displaced guest are emailed.
+async function cancelOfferFlow(ev, offer, byWho) {
+  const all = await db.listClaims(ev.id).catch(() => []);
+  const displaced = (all || []).filter((c) => c.address === offer.address);
+  for (const c of displaced) { try { await db.deleteClaim(c.id); } catch {} }
+  try { await db.deleteOffer(offer.id); } catch {}
+  if (!LIVE) return displaced;
+  const who = byWho === "host" ? `the host, ${ev.host_name}` : `${offer.neighbor_name} (the neighbor)`;
+  const guestBit = displaced.length ? `\n${displaced.length} guest(s) who had claimed it (${displaced.map((g) => g.guest_name).join(", ")}) were emailed too.` : "";
+  if (offer.email) emailDetails(offer.email, offer.neighbor_name, `Parking spot cancelled — ${ev.party_date}`,
+    `Hi ${offer.neighbor_name},\n\nThe parking spot you offered at ${offer.address} for ${ev.host_name}'s event on ${ev.party_date} (${ev.time_from}–${ev.time_to}) has been cancelled by ${who}.\n\nNo guest will park there for this event.${guestBit}\n\nThanks for offering!\n— ParkNextDoor`);
+  if (ev.email) emailDetails(ev.email, ev.host_name, `Parking spot cancelled — ${ev.party_date}`,
+    `Hi ${ev.host_name},\n\nThe parking spot offered by ${offer.neighbor_name} at ${offer.address} for your event on ${ev.party_date} (${ev.time_from}–${ev.time_to}) has been cancelled by ${who}.\n\nThe spot has been removed from your event.${guestBit}`);
+  for (const c of displaced) {
+    if (c.email) emailDetails(c.email, c.guest_name, `Your parking spot was cancelled — ${ev.party_date}`,
+      `Hi ${c.guest_name},\n\nSorry — the parking spot you claimed at ${offer.address} (${c.spot_label}) for ${ev.host_name}'s event on ${ev.party_date} (${ev.time_from}–${ev.time_to}) has been cancelled by ${who}.\n\nPlease check the guest link for the remaining spots:\n${base()}#/g/${ev.id}\n\n— ParkNextDoor`);
+  }
+  return displaced;
 }
 
 // Forgot-PIN flow: email a 6-digit code (hashed at rest, 30-min expiry), then
@@ -448,10 +471,11 @@ async function hostView(ref) {
   })));
   if (LIVE) { /* codes persist via claims in Live Mode; Link Mode regenerates deterministically per session */ }
   saveOffers(ev.id, offers);
-  const assignRows = spots.map((s) => {
+  const assignRows = spots.map((s, idx) => {
     const c = claims.find((x) => x.address === s.address && x.spot_label === s.label);
-    return `<div class="spot">🚗 <strong>${esc(s.address)}</strong> · ${esc(s.label)}<br>
-      <span class="muted">Neighbor:</span> <strong>${esc(s.neighbor)}</strong> &nbsp;→&nbsp; <span class="muted">Guest:</span> ${c ? `<strong>${esc(c.guest_name)}</strong>${c.car_color || c.car_model ? ` · 🚙 ${esc([c.car_color, c.car_model].filter(Boolean).join(" "))}` : ""}${c.email ? " · " + esc(c.email) : ""}${c.phone ? " · " + esc(c.phone) : ""}` : `<em>not claimed yet</em>`}</div>`;
+    return `<tr data-spotrow="${idx}"><td>🚗 <strong>${esc(s.address)}</strong><br><span class="muted">${esc(s.label)}</span></td>
+      <td><strong>${esc(s.neighbor)}</strong></td>
+      <td class="guestcell"${c ? ` draggable="true" data-claim="${c.id}" title="Drag onto another spot to move or swap — or tap this guest, then tap the target spot"` : ""}>${c ? `<strong>${esc(c.guest_name)}</strong>${c.car_color || c.car_model ? ` · 🚙 ${esc([c.car_color, c.car_model].filter(Boolean).join(" "))}` : ""}${c.email ? `<br><span class="muted">${esc(c.email)}</span>` : ""}${c.phone ? `<br><span class="muted">${esc(c.phone)}</span>` : ""}` : `<em class="muted">not claimed — drop a guest here</em>`}</td></tr>`;
   }).join("");
   const hostRec = ev.email ? await db.getHost(ev.email).catch(() => null) : null;
   const oLink = offerLink(ev), gLink = guestLink(ev, spots);
@@ -496,10 +520,11 @@ async function hostView(ref) {
     ${offers.length ? "" : `<p class="muted">No offers yet${LIVE ? "" : " on this device. When a neighbor offers, they'll send you an offer link — open it on this phone/computer and it lands here automatically"}.</p>`}
     ${offers.map((o) => `<div class="spot"><strong>${esc(o.neighbor_name)}</strong> <span class="badge ${o.status === "locked" ? "" : "grey"}">${o.status === "locked" ? "LOCKED" : "offered"}</span>
       <span class="badge amber">${distLabel(o.dist)}</span><br><span class="muted">${esc(o.address)} · ${o.spots} spot(s)${o.phone ? " · " + esc(o.phone) : ""}${o.notes ? " · " + esc(o.notes) : ""}</span><br>
-      <button data-lock="${o.id}">${o.status === "locked" ? "Unlock" : "Accept & lock"}</button></div>`).join("")}
+      <button data-lock="${o.id}">${o.status === "locked" ? "Unlock" : "Accept & lock"}</button> <button class="danger" data-cancel-offer="${o.id}">Cancel spot</button></div>`).join("")}
   </div>
   <div class="card"><h2>🅿️ Parking assignments — who parks where (${spots.length} spot${spots.length === 1 ? "" : "s"})</h2>
-    ${spots.length ? assignRows : `<p class="muted">Lock a neighbor's offer above and the neighbor → guest mapping for each spot will appear here.</p>`}
+    ${spots.length ? `<p class="muted">Reshuffle anytime: <strong>drag a guest onto another spot</strong> — or tap a guest, then tap the target spot. Dropping onto an occupied spot swaps the two guests. Moved guests and the affected neighbors are emailed the change.</p>
+    <div style="overflow-x:auto"><table class="assign"><thead><tr><th>Spot</th><th>Neighbor</th><th>Guest — drag to reshuffle</th></tr></thead><tbody>${assignRows}</tbody></table></div>` : `<p class="muted">Lock a neighbor's offer above and the neighbor → guest mapping for each spot will appear here.</p>`}
   </div>
   <div class="card"><h2>Guest claims (${claims.length})</h2>
     ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.guest_name)}</strong> — ${esc(c.address)}${c.car_color || c.car_model ? ` · 🚙 ${esc([c.car_color, c.car_model].filter(Boolean).join(" "))}` : ""}</div>`).join("") : `<p class="muted">No claims yet${LIVE ? "" : " on this device. Guests get a claim link to send back to you"}.</p>`}
@@ -513,6 +538,58 @@ async function hostView(ref) {
     if (LIVE) notifyLockChange(ev, o, o.status);
     hostView(ev.id);
   }));
+  $app.querySelectorAll("[data-cancel-offer]").forEach((b) => b.addEventListener("click", async () => {
+    const o = offers.find((x) => String(x.id) === b.dataset.cancelOffer);
+    if (!o) return;
+    const n = claims.filter((c) => c.address === o.address).length;
+    if (!confirm(`Cancel ${o.neighbor_name}'s parking spot at ${o.address}?\n\nThe spot is removed from your event${n ? ` and ${n} guest claim(s) on it are cancelled` : ""}. ${o.neighbor_name}, you${n ? ", and the guest(s)" : ""} will be emailed.`)) return;
+    b.disabled = true; b.textContent = "Cancelling…";
+    await cancelOfferFlow(ev, o, "host");
+    hostView(ev.id);
+  }));
+  // Reshuffle: move a guest's claim to another spot, or swap two guests.
+  let dragClaimId = null, selectedClaimId = null;
+  async function applyReshuffle(claimId, targetIdx) {
+    const target = spots[targetIdx];
+    const moving = claims.find((c) => String(c.id) === String(claimId));
+    if (!target || !moving) return;
+    if (moving.address === target.address && moving.spot_label === target.label) return;
+    const occupant = claims.find((c) => c.address === target.address && c.spot_label === target.label);
+    const fromSpot = { address: moving.address, label: moving.spot_label };
+    try {
+      await db.updateClaimSpot(moving.id, target.address, target.label);
+      if (occupant) await db.updateClaimSpot(occupant.id, fromSpot.address, fromSpot.label);
+    } catch (e) { alert("Couldn't save the reshuffle: " + e.message); return; }
+    if (LIVE) {
+      const offerAt = (addr) => offers.find((o) => o.address === addr);
+      const navFor = (addr) => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(addr);
+      const carTxt = (c) => [c.car_color, c.car_model].filter(Boolean).join(" ");
+      if (moving.email) emailDetails(moving.email, moving.guest_name, `Your parking spot changed — ${ev.party_date}`,
+        `Hi ${moving.guest_name},\n\n${ev.host_name} moved your parking for the event on ${ev.party_date} (${ev.time_from}–${ev.time_to}).\n\nYour NEW spot: ${target.address} (${target.label}) — at ${target.neighbor}'s home.\nNavigate: ${navFor(target.address)}\n\n(You were previously at ${fromSpot.address}.)\n\n— ParkNextDoor`);
+      if (occupant && occupant.email) emailDetails(occupant.email, occupant.guest_name, `Your parking spot changed — ${ev.party_date}`,
+        `Hi ${occupant.guest_name},\n\n${ev.host_name} swapped your parking for the event on ${ev.party_date} (${ev.time_from}–${ev.time_to}).\n\nYour NEW spot: ${fromSpot.address} (${fromSpot.label}) — at ${(offerAt(fromSpot.address) || {}).neighbor_name || "a neighbor"}'s home.\nNavigate: ${navFor(fromSpot.address)}\n\n— ParkNextDoor`);
+      const fromOffer = offerAt(fromSpot.address), toOffer = offerAt(target.address);
+      if (toOffer && toOffer.email) emailDetails(toOffer.email, toOffer.neighbor_name, `Parking update for your spot — ${ev.party_date}`,
+        `Hi ${toOffer.neighbor_name},\n\nThe guest parking at your spot (${target.address}, ${target.label}) for ${ev.host_name}'s event on ${ev.party_date} is now:\n\n${moving.guest_name}${carTxt(moving) ? " — 🚙 " + carTxt(moving) : ""}\n\n— ParkNextDoor`);
+      if (fromOffer && fromOffer.email && String(fromOffer.id) !== String((toOffer || {}).id)) emailDetails(fromOffer.email, fromOffer.neighbor_name, `Parking update for your spot — ${ev.party_date}`,
+        `Hi ${fromOffer.neighbor_name},\n\nThe guest parking at your spot (${fromSpot.address}, ${fromSpot.label}) for ${ev.host_name}'s event on ${ev.party_date} is now:\n\n${occupant ? `${occupant.guest_name}${carTxt(occupant) ? " — 🚙 " + carTxt(occupant) : ""}` : "No guest assigned right now."}\n\n— ParkNextDoor`);
+    }
+    hostView(ev.id);
+  }
+  $app.querySelectorAll(".guestcell[data-claim]").forEach((cell) => {
+    cell.addEventListener("dragstart", (e) => { dragClaimId = cell.dataset.claim; try { e.dataTransfer.setData("text/plain", dragClaimId); e.dataTransfer.effectAllowed = "move"; } catch {} });
+    cell.addEventListener("click", () => {
+      $app.querySelectorAll(".guestcell.sel").forEach((x) => x.classList.remove("sel"));
+      if (selectedClaimId === cell.dataset.claim) { selectedClaimId = null; return; }
+      selectedClaimId = cell.dataset.claim; cell.classList.add("sel");
+    });
+  });
+  $app.querySelectorAll("[data-spotrow]").forEach((row) => {
+    row.addEventListener("dragover", (e) => { e.preventDefault(); row.classList.add("dropok"); });
+    row.addEventListener("dragleave", () => row.classList.remove("dropok"));
+    row.addEventListener("drop", (e) => { e.preventDefault(); row.classList.remove("dropok"); const id = dragClaimId || selectedClaimId; dragClaimId = null; if (id) applyReshuffle(id, Number(row.dataset.spotrow)); });
+    row.addEventListener("click", (e) => { if (selectedClaimId && !e.target.closest(".guestcell")) applyReshuffle(selectedClaimId, Number(row.dataset.spotrow)); });
+  });
   const pinMsg = document.getElementById("pin-msg");
   const pinSet = document.getElementById("pin-set");
   if (pinSet) pinSet.addEventListener("click", async () => {
@@ -694,10 +771,22 @@ async function neighborView(offerId) {
     <p><strong>${esc(offer.neighbor_name)}</strong> · ${esc(offer.address)} · ${offer.spots} spot(s) · status: <strong>${esc(offer.status)}</strong></p>
     <p>Guests identify themselves <strong>by name and car</strong> (color + make & model) — no passcode needed.</p>
     <div id="map"></div>
+    <p><button class="danger" id="cancel-my-offer">Cancel my parking offer</button></p>
   </div>
   <div class="card"><h2>Who claimed your spot${offer.spots > 1 ? "s" : ""} (${claims.length})</h2>
     ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.spot_label)}</strong> → Guest: <strong>${esc(c.guest_name)}</strong>${c.car_color || c.car_model ? ` · 🚙 ${esc([c.car_color, c.car_model].filter(Boolean).join(" "))}` : ""}</div>`).join("") : `<p class="muted">No guest has claimed your spot yet. This page updates as guests claim — bookmark it and check on event day.</p>`}
     <p class="muted">Event at ${ev ? esc(ev.address) : ""}. Keep this page's link private — it shows your claim details.</p></div>`;
+  const cancelBtn = document.getElementById("cancel-my-offer");
+  if (cancelBtn) cancelBtn.addEventListener("click", async () => {
+    if (!ev) return;
+    if (!confirm(`Cancel your parking offer at ${offer.address}?\n\nThe spot is removed from ${ev.host_name}'s event${claims.length ? ` and ${claims.length} guest claim(s) on it are cancelled` : ""}. The host${claims.length ? ", you, and the guest(s)" : " and you"} will be emailed.`)) return;
+    cancelBtn.disabled = true; cancelBtn.textContent = "Cancelling…";
+    await cancelOfferFlow(ev, offer, "neighbor");
+    $app.innerHTML = `<div class="card"><div class="big">Your parking offer has been cancelled ✓</div>
+      <p>The spot at <strong>${esc(offer.address)}</strong> has been removed from ${esc(ev.host_name)}'s event on ${esc(ev.party_date)}. The host${claims.length ? " and the guest(s)" : ""} received an email about the cancellation.</p>
+      <p><a class="btn" href="#/">ParkNextDoor home</a></p></div>`;
+    window.scrollTo(0, 0);
+  });
   const guestNames = [...new Set(claims.map((c) => c.guest_name))];
   drawMap("map", [
     ...(ev && ev.lat ? [{ lat: ev.lat, lng: ev.lng, name: "🏠 " + ev.host_name, label: ev.host_name + "'s event — " + ev.address }] : []),

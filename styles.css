@@ -25,6 +25,12 @@ footer{max-width:880px;margin:0 auto;padding:18px;color:#64748b;font-size:13px}
 button.danger, .btn.danger { background: #b3261e; color: #fff; }
 
 /* map pin name labels (permanent tooltips) */
+table.assign { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.assign th, table.assign td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+table.assign th { background: #f8fafc; }
+table.assign .guestcell { cursor: grab; }
+table.assign .guestcell.sel { outline: 2px solid #2563eb; outline-offset: -2px; background: #eff6ff; }
+table.assign tr.dropok td { background: #ecfdf5; }
 .maplabel { background: #fff; border: 1.5px solid #0f766e; color: #17202a; font-weight: 700; font-size: 11px; padding: 2px 7px; border-radius: 999px; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .maplabel:before { display: none; }
 
