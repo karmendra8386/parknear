@@ -371,7 +371,7 @@ async function hostHomeView() {
   }
   const card = ({ ev, offers, locked, claims }) => `<div class="spot"><span class="badge">${esc(ev.party_date)} · ${esc(ev.time_from)}–${esc(ev.time_to)}</span> <strong>${esc(ev.host_name)}'s event</strong><br>
     <span class="muted">${esc(ev.address)} · needs ${ev.needed} spots · ${offers} offer(s) · ${locked} locked · ${claims} claim(s)</span><br>
-    <a class="btn" href="#/host/${ev.id}">Open dashboard</a> <a class="btn secondary" href="#/e/${ev.id}">Neighbor link</a> <a class="btn secondary" href="#/g/${ev.id}">Guest link</a></div>`;
+    <a class="btn" href="#/host/${ev.id}">Host link</a> <a class="btn secondary" href="#/e/${ev.id}">Neighbor link</a> <a class="btn secondary" href="#/g/${ev.id}">Guest link</a></div>`;
   const up = enriched.filter((x) => x.ev.party_date >= today).sort((a, b) => a.ev.party_date.localeCompare(b.ev.party_date));
   const past = enriched.filter((x) => x.ev.party_date < today);
   $app.innerHTML = `<div class="card"><div class="big">👋 Your events</div>
