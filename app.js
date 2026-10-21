@@ -156,6 +156,10 @@ function notifyLockChange(ev, o, status) {
 
 // ---------- map ----------
 let mapObj = null;
+// After a phone rotation or window resize, Leaflet needs a nudge or it leaves
+// grey bands where the map used to end.
+let __rszT = null;
+window.addEventListener("resize", () => { clearTimeout(__rszT); __rszT = setTimeout(() => { try { if (mapObj) mapObj.invalidateSize(); } catch {} }, 250); });
 function drawMap(elId, points) {
   const el = document.getElementById(elId);
   if (!el || !window.L || !points.length) return;

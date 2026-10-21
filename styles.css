@@ -30,3 +30,52 @@ button.danger, .btn.danger { background: #b3261e; color: #fff; }
 .statnum { font-size: 26px; font-weight: 800; color: #0B2545; }
 .statlbl { font-size: 12px; color: #64748b; }
 .tabbar { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- responsive: phones, rotation, tablets, laptops ---------- */
+html { -webkit-text-size-adjust: 100%; }
+body { overflow-wrap: break-word; }
+img, svg, video { max-width: 100%; }
+header { flex-wrap: wrap; gap: 4px 10px; padding-left: max(18px, env(safe-area-inset-left)); padding-right: max(18px, env(safe-area-inset-right)); }
+header nav { display: flex; flex-wrap: wrap; align-items: center; }
+header a { padding: 8px 2px; }
+button, .btn { min-height: 44px; }
+main { width: 100%; }
+
+/* phones, portrait */
+@media (max-width: 640px) {
+  main { padding: 12px; }
+  footer { padding: 12px; }
+  .card { padding: 14px; margin: 10px 0; border-radius: 12px; }
+  .brand { font-size: 18px; }
+  header a { font-size: 13px; margin-left: 10px; }
+  .big { font-size: 20px; }
+  #map { height: 280px; }
+  .linkbox { font-size: 12px; }
+  .spot { padding: 12px; }
+  .stat { flex: 1 1 44%; }
+}
+/* very narrow phones */
+@media (max-width: 380px) {
+  .brand { font-size: 16px; }
+  header a { margin-left: 8px; }
+  .statnum { font-size: 22px; }
+  .code { font-size: 24px; }
+}
+/* phones rotated to landscape: short screen — slim the vertical space */
+@media (orientation: landscape) and (max-height: 500px) {
+  header { padding-top: 8px; padding-bottom: 8px; position: static; }
+  main { padding: 10px 14px; }
+  .card { padding: 12px; margin: 8px 0; }
+  .big { font-size: 19px; }
+  #map { height: 210px; }
+}
+/* tablets and small laptops */
+@media (min-width: 641px) and (max-width: 1199px) {
+  main, footer { max-width: 780px; }
+}
+/* laptops and desktops */
+@media (min-width: 1200px) {
+  main, footer { max-width: 1040px; }
+  body { font-size: 17px; }
+  #map { height: 420px; }
+}
