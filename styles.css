@@ -24,6 +24,10 @@ footer{max-width:880px;margin:0 auto;padding:18px;color:#64748b;font-size:13px}
 .ac-item:hover, .ac-item:active { background: #eef4ff; }
 button.danger, .btn.danger { background: #b3261e; color: #fff; }
 
+/* map pin name labels (permanent tooltips) */
+.maplabel { background: #fff; border: 1.5px solid #0f766e; color: #17202a; font-weight: 700; font-size: 11px; padding: 2px 7px; border-radius: 999px; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+.maplabel:before { display: none; }
+
 /* admin layout */
 .statrow { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; }
 .stat { flex: 1 1 120px; background: #f1f5fb; border-radius: 12px; padding: 10px 14px; }

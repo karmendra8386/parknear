@@ -213,10 +213,13 @@ function drawMap(elId, points) {
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap contributors" }).addTo(mapObj);
   const bounds = [];
   points.forEach((p) => {
-    L.marker([p.lat, p.lng]).addTo(mapObj).bindPopup(esc(p.label));
+    const mk = L.marker([p.lat, p.lng]).addTo(mapObj).bindPopup(esc(p.label));
+    // Permanent name label on the pin (not just in the tap-to-open popup).
+    const nm = p.name || String(p.label || "").split(" — ")[0];
+    if (nm && mk.bindTooltip) mk.bindTooltip(esc(nm), { permanent: true, direction: "top", offset: [0, -26], className: "maplabel" });
     bounds.push([p.lat, p.lng]);
   });
-  if (bounds.length > 1) mapObj.fitBounds(bounds, { padding: [30, 30] });
+  if (bounds.length > 1) mapObj.fitBounds(bounds, { padding: [42, 42] });
 }
 
 // ---------- views ----------
@@ -501,7 +504,7 @@ async function hostView(ref) {
   <div class="card"><h2>Guest claims (${claims.length})</h2>
     ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.guest_name)}</strong> — ${esc(c.address)}${c.car_color || c.car_model ? ` · 🚙 ${esc([c.car_color, c.car_model].filter(Boolean).join(" "))}` : ""}</div>`).join("") : `<p class="muted">No claims yet${LIVE ? "" : " on this device. Guests get a claim link to send back to you"}.</p>`}
   </div>`;
-  drawMap("map", [{ lat: ev.lat, lng: ev.lng, label: "Event: " + ev.address }, ...offers.filter((o) => o.lat).map((o) => ({ lat: o.lat, lng: o.lng, label: o.neighbor_name + " — " + o.address }))]);
+  drawMap("map", [{ lat: ev.lat, lng: ev.lng, name: "🏠 " + ev.host_name, label: ev.host_name + "'s event — " + ev.address }, ...offers.filter((o) => o.lat).map((o) => { const cs = claims.filter((c) => c.address === o.address); return { lat: o.lat, lng: o.lng, name: o.neighbor_name + (o.status === "locked" ? " 🔒" : ""), label: o.neighbor_name + " — " + o.address + (cs.length ? " · Guest: " + cs.map((c) => c.guest_name).join(", ") : "") }; })]);
   $app.querySelectorAll("[data-lock]").forEach((b) => b.addEventListener("click", async () => {
     const o = offers.find((x) => String(x.id) === b.dataset.lock);
     o.status = o.status === "locked" ? "offered" : "locked"; if (o.status === "locked" && !o.code) o.code = passcode();
@@ -573,7 +576,7 @@ async function offerView(ref) {
     <p><button type="submit">Offer my spot →</button></p><p class="muted" id="of-msg"></p></form>
     <div id="of-done"></div></div>`;
   attachAutocomplete(document.getElementById("o-addr"));
-  drawMap("map", [{ lat: ev.lat, lng: ev.lng, label: "Event: " + ev.address }]);
+  drawMap("map", [{ lat: ev.lat, lng: ev.lng, name: "🏠 " + ev.host_name, label: ev.host_name + "'s event — " + ev.address }]);
   document.getElementById("of-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const msg = document.getElementById("of-msg"); msg.textContent = "Finding your address on the map…";
@@ -643,7 +646,7 @@ async function guestView(ref) {
       <br><span class="muted">${esc(s.label)} · offered by ${neighborLabel(s)}${s.takenBy ? " · this spot is claimed" : ""}</span>
       <div data-claim-zone="${i}">${s.takenBy || s.takenLocally ? `<p class="muted">This spot is claimed.</p>` : `<br><input placeholder="Your name" id="g-name-${i}"><input placeholder="Your email (required)" type="email" id="g-email-${i}"><input placeholder="Mobile (optional)" type="tel" id="g-phone-${i}"><br><input placeholder="Car color (required) — e.g. Silver" id="g-carcolor-${i}"><input placeholder="Car make & model (required) — e.g. Toyota Camry" id="g-carmodel-${i}"> <button data-claim="${i}">Claim this spot</button>`}</div></div>`).join("")}</div>
     <div id="claim-done"></div></div>`;
-  drawMap("map", [{ lat: ev.lat, lng: ev.lng, label: "Event: " + ev.address }, ...spots.filter((s) => s.lat).map((s) => ({ lat: s.lat, lng: s.lng, label: s.address }))]);
+  drawMap("map", [{ lat: ev.lat, lng: ev.lng, name: "🏠 " + ev.host_name, label: ev.host_name + "'s event — " + ev.address }, ...spots.filter((s) => s.lat).map((s) => ({ lat: s.lat, lng: s.lng, name: s.neighbor + (s.takenBy ? " · claimed" : ""), label: s.neighbor + " — " + s.address + " · " + s.label + (s.takenBy ? " · claimed by " + s.takenBy : "") }))]);
   $app.querySelectorAll("[data-claim]").forEach((b) => b.addEventListener("click", async () => {
     const i = +b.dataset.claim, s = spots[i];
     const name = document.getElementById("g-name-" + i).value.trim();
@@ -690,10 +693,16 @@ async function neighborView(offerId) {
     <div class="big">Your parking offer${ev ? ` for ${esc(ev.host_name)}'s event` : ""}</div>
     <p><strong>${esc(offer.neighbor_name)}</strong> · ${esc(offer.address)} · ${offer.spots} spot(s) · status: <strong>${esc(offer.status)}</strong></p>
     <p>Guests identify themselves <strong>by name and car</strong> (color + make & model) — no passcode needed.</p>
+    <div id="map"></div>
   </div>
   <div class="card"><h2>Who claimed your spot${offer.spots > 1 ? "s" : ""} (${claims.length})</h2>
     ${claims.length ? claims.map((c) => `<div class="spot"><strong>${esc(c.spot_label)}</strong> → Guest: <strong>${esc(c.guest_name)}</strong>${c.car_color || c.car_model ? ` · 🚙 ${esc([c.car_color, c.car_model].filter(Boolean).join(" "))}` : ""}</div>`).join("") : `<p class="muted">No guest has claimed your spot yet. This page updates as guests claim — bookmark it and check on event day.</p>`}
     <p class="muted">Event at ${ev ? esc(ev.address) : ""}. Keep this page's link private — it shows your claim details.</p></div>`;
+  const guestNames = [...new Set(claims.map((c) => c.guest_name))];
+  drawMap("map", [
+    ...(ev && ev.lat ? [{ lat: ev.lat, lng: ev.lng, name: "🏠 " + ev.host_name, label: ev.host_name + "'s event — " + ev.address }] : []),
+    ...(offer.lat ? [{ lat: offer.lat, lng: offer.lng, name: claims.length ? "🚗 " + guestNames.join(", ") : "Your spot", label: "Your spot — " + offer.address + (claims.length ? " · " + claims.map((c) => `${c.spot_label} → ${c.guest_name}`).join("; ") : "") }] : [])
+  ]);
 }
 
 async function sha256Hex(text) {
