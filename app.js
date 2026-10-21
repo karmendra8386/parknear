@@ -115,6 +115,7 @@ const db = {
   async listClaims(eventId) { if (!LIVE) return claimsFor(eventId); return sb("claims?event_id=eq." + encodeURIComponent(eventId) + "&select=*&order=created_at.asc"); },
   async getOffer(id) { if (!LIVE) return null; const rows = await sb("offers?id=eq." + encodeURIComponent(id) + "&select=*"); return rows[0] || null; },
   async listAllEvents() { if (!LIVE) return myEvents(); return sb("events?select=*&order=party_date.desc,created_at.desc"); },
+  async listEventsByEmail(email) { if (!LIVE) return myEvents().filter((e) => (e.email || "").toLowerCase() === String(email).toLowerCase()); return sb("events?email=ilike." + encodeURIComponent(email) + "&select=*&order=party_date.desc,created_at.desc"); },
   async deleteEvent(id) { if (!LIVE) return; return sb("events?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
   async deleteOffer(id) { if (!LIVE) return; return sb("offers?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
   async deleteClaim(id) { if (!LIVE) return; return sb("claims?id=eq." + encodeURIComponent(id), { method: "DELETE" }); },
@@ -239,6 +240,44 @@ async function resolveEvent(ref) {
 const offerLink = (ev) => LIVE ? `${base()}#/e/${ev.id}` : `${base()}#/e/${enc(ev)}`;
 const guestLink = (ev, spots) => LIVE ? `${base()}#/g/${ev.id}` : `${base()}#/g/${enc({ ev, spots })}`;
 const waShare = (text) => "https://wa.me/?text=" + encodeURIComponent(text);
+
+// Host home (#/host with no event id): the host "signs in" with the email used
+// at event creation and sees every event made with that email, on any device.
+async function hostHomeView() {
+  const saved = (localStorage.getItem("parknear_my_email") || "").trim();
+  if (!saved) {
+    $app.innerHTML = `<div class="card"><div class="big">👋 Host dashboard</div>
+      <p class="muted">Enter the email you used when creating your events — you'll see all of them here, past and upcoming, from any device.</p>
+      <label>Your email</label><input id="my-email" type="email" placeholder="you@example.com" style="max-width:340px">
+      <p><button id="my-go">See my events →</button></p><p class="muted" id="my-msg"></p></div>`;
+    document.getElementById("my-go").addEventListener("click", () => {
+      const v = document.getElementById("my-email").value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { document.getElementById("my-msg").textContent = "Please enter a valid email address."; return; }
+      localStorage.setItem("parknear_my_email", v); hostHomeView();
+    });
+    return;
+  }
+  $app.innerHTML = `<div class="card"><p class="muted">Loading your events…</p></div>`;
+  const events = await db.listEventsByEmail(saved);
+  const today = new Date().toLocaleDateString("en-CA");
+  const enriched = [];
+  for (const ev of events) {
+    const offers = await db.listOffers(ev.id);
+    const claims = await db.listClaims(ev.id);
+    enriched.push({ ev, offers: offers.length, locked: offers.filter((o) => o.status === "locked").length, claims: claims.length });
+  }
+  const card = ({ ev, offers, locked, claims }) => `<div class="spot"><span class="badge">${esc(ev.party_date)} · ${esc(ev.time_from)}–${esc(ev.time_to)}</span> <strong>${esc(ev.host_name)}'s event</strong><br>
+    <span class="muted">${esc(ev.address)} · needs ${ev.needed} spots · ${offers} offer(s) · ${locked} locked · ${claims} claim(s)</span><br>
+    <a class="btn" href="#/host/${ev.id}">Open dashboard</a> <a class="btn secondary" href="#/e/${ev.id}">Neighbor link</a> <a class="btn secondary" href="#/g/${ev.id}">Guest link</a></div>`;
+  const up = enriched.filter((x) => x.ev.party_date >= today).sort((a, b) => a.ev.party_date.localeCompare(b.ev.party_date));
+  const past = enriched.filter((x) => x.ev.party_date < today);
+  $app.innerHTML = `<div class="card"><div class="big">👋 Your events</div>
+    <p class="muted">Signed in as <strong>${esc(saved)}</strong> — every event created with this email, on any device. Opening a dashboard still asks for that event's host PIN.</p>
+    <p><button class="secondary" id="my-switch">Use a different email</button> <a class="btn" href="#/">+ Create a new event</a></p></div>
+    <div class="card"><h2>Upcoming (${up.length})</h2>${up.length ? up.map(card).join("") : `<p class="muted">No upcoming events.</p>`}</div>
+    <div class="card"><h2>Past (${past.length})</h2>${past.length ? past.map(card).join("") : `<p class="muted">No past events.</p>`}</div>`;
+  document.getElementById("my-switch").addEventListener("click", () => { localStorage.removeItem("parknear_my_email"); hostHomeView(); });
+}
 
 async function hostView(ref) {
   const events = myEvents();
@@ -625,7 +664,7 @@ async function route() {
   window.scrollTo(0, 0);
   try {
     if (parts[0] === "" || parts[0] === undefined) homeView();
-    else if (parts[0] === "host") await hostView(parts[1]);
+    else if (parts[0] === "host") { if (parts[1]) await hostView(parts[1]); else await hostHomeView(); }
     else if (parts[0] === "e") await offerView(parts.slice(1).join("/"));
     else if (parts[0] === "g") await guestView(parts.slice(1).join("/"));
     else if (parts[0] === "o") await neighborView(parts[1]);
