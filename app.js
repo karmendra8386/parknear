@@ -16,7 +16,7 @@ document.getElementById("mode-line").textContent = LIVE
 // ---------- helpers ----------
 const enc = (o) => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const dec = (s) => JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/")))));
-const uid = () => Math.random().toString(36).slice(2, 9);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const passcode = () => String(Math.floor(1000 + Math.random() * 9000));
 function haversineMi(aLat, aLng, bLat, bLng) {
@@ -737,7 +737,14 @@ async function guestView(ref) {
     if (!carModel) { alert("Please enter your car make & model — e.g. Toyota Camry."); return; }
     const claim = { id: uid(), event_id: ev.id, guest_name: name, email: gEmail, phone: gPhone, car_color: carColor, car_model: carModel, address: s.address, spot_label: s.label, code: s.code };
     let notifyHtml = "";
-    if (LIVE) { try { await db.addClaim(claim); } catch (e) { alert(e.message); return; }
+    if (LIVE) {
+      b.disabled = true; b.textContent = "Claiming…";
+      const freshClaims = await db.listClaims(ev.id).catch(() => []);
+      if (freshClaims.some((c) => c.address === s.address && c.spot_label === s.label)) { alert("Sorry — that spot was just claimed by another guest. Please pick a different spot."); guestView(ref); return; }
+      try { await db.addClaim(claim); } catch (e) {
+        if (String(e.message).includes("409")) { claim.id = uid(); try { await db.addClaim(claim); } catch { alert("Sorry — that spot was just claimed by another guest. Please pick a different spot."); guestView(ref); return; } }
+        else { alert("Something went wrong while claiming your spot — please try again."); b.disabled = false; b.textContent = "Claim this spot"; return; }
+      }
       if (ev.email) emailDetails(ev.email, ev.host_name, `A guest claimed a parking spot — ${ev.party_date}`,
         `${name} just claimed the spot at ${s.address} (${s.label}, offered by ${s.neighbor}) for your event on ${ev.party_date}, ${ev.time_from}–${ev.time_to}.\nGuest: ${name} · ${gEmail}${gPhone ? " · " + gPhone : ""}\nCar: ${carColor} ${carModel}\nSee all parking assignments: ${base()}#/host/${ev.id}`);
       if (s.nemail) emailDetails(s.nemail, s.neighbor, `Your parking spot was claimed — ${ev.party_date}`,
