@@ -315,15 +315,47 @@ const waShare = (text) => "https://wa.me/?text=" + encodeURIComponent(text);
 // at event creation and sees every event made with that email, on any device.
 async function hostHomeView() {
   const saved = (localStorage.getItem("parknear_my_email") || "").trim();
-  if (!saved) {
-    $app.innerHTML = `<div class="card"><div class="big">👋 Host dashboard</div>
-      <p class="muted">Enter the email you used when creating your events — you'll see all of them here, past and upcoming, from any device.</p>
-      <label>Your email</label><input id="my-email" type="email" placeholder="you@example.com" style="max-width:340px">
-      <p><button id="my-go">See my events →</button></p><p class="muted" id="my-msg"></p></div>`;
-    document.getElementById("my-go").addEventListener("click", () => {
-      const v = document.getElementById("my-email").value.trim();
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { document.getElementById("my-msg").textContent = "Please enter a valid email address."; return; }
-      localStorage.setItem("parknear_my_email", v); hostHomeView();
+  const authed = (sessionStorage.getItem("parknear_my_auth") || "").trim();
+  if (!saved || authed.toLowerCase() !== saved.toLowerCase()) {
+    $app.innerHTML = `<div class="card"><div class="big">👋 Host sign-in</div>
+      <p class="muted">Sign in with the email and host PIN you used when creating your events — you'll see all of them here, past and upcoming, from any device. New here? <a href="#/">Create your first event</a> — your PIN is set there.</p>
+      <label>Your email</label><input id="my-email" type="email" value="${esc(saved)}" placeholder="you@example.com" style="max-width:340px">
+      <label>Your host PIN</label><input id="my-pin" type="password" inputmode="numeric" maxlength="8" placeholder="4–8 digits" style="max-width:220px">
+      <p><button id="my-go">Sign in →</button> <a href="#" id="my-forgot">Forgot PIN? Reset by email →</a></p>
+      <p class="muted" id="my-msg"></p><div id="my-forgot-box"></div></div>`;
+    const signIn = async () => {
+      const em = document.getElementById("my-email").value.trim();
+      const pin = document.getElementById("my-pin").value.trim();
+      const msg = document.getElementById("my-msg");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { msg.textContent = "Please enter a valid email address."; return; }
+      msg.textContent = "Checking…";
+      const host = await db.getHost(em).catch(() => null);
+      if (host) {
+        if ((await sha256Hex(pin)) !== host.pin_hash) { msg.textContent = "Wrong PIN — try again, or reset it by email below."; return; }
+      } else {
+        // Legacy hosts (events created before host records existed): accept a
+        // PIN that matches any of their events, then adopt it as the host PIN.
+        const evs = await db.listEventsByEmail(em).catch(() => []);
+        const hashes = [...new Set(evs.map((e) => e.host_pin_hash).filter(Boolean))];
+        if (hashes.length) {
+          const mine = await sha256Hex(pin);
+          if (!hashes.includes(mine)) { msg.textContent = "Wrong PIN — try again, or reset it by email below."; return; }
+          try { await db.saveHostPin(em, mine); } catch {}
+        }
+      }
+      localStorage.setItem("parknear_my_email", em);
+      sessionStorage.setItem("parknear_my_auth", em);
+      hostHomeView();
+    };
+    document.getElementById("my-go").addEventListener("click", signIn);
+    document.getElementById("my-forgot").addEventListener("click", (e) => {
+      e.preventDefault();
+      const em = document.getElementById("my-email").value.trim();
+      renderPinReset(document.getElementById("my-forgot-box"), em, (doneEmail) => {
+        localStorage.setItem("parknear_my_email", doneEmail);
+        sessionStorage.setItem("parknear_my_auth", doneEmail);
+        hostHomeView();
+      });
     });
     return;
   }
@@ -344,7 +376,7 @@ async function hostHomeView() {
   const past = enriched.filter((x) => x.ev.party_date < today);
   $app.innerHTML = `<div class="card"><div class="big">👋 Your events</div>
     <p class="muted">Signed in as <strong>${esc(saved)}</strong> — every event created with this email, on any device. Opening a dashboard still asks for that event's host PIN.</p>
-    <p><button class="secondary" id="my-switch">Use a different email</button> <a class="btn" href="#/">+ Create a new event</a></p></div>
+    <p><button class="secondary" id="my-switch">Use a different email</button> <button class="secondary" id="my-signout">Sign out</button> <a class="btn" href="#/">+ Create a new event</a></p></div>
     <div class="card"><h2>🔐 Your host PIN</h2>
     ${hostRec ? `<p class="muted">One PIN protects the dashboards of ALL your events — change it here and it updates everywhere.</p>
       <div class="row"><div><label>Current PIN</label><input id="hh-cur" type="password" inputmode="numeric" maxlength="8"></div>
@@ -356,7 +388,8 @@ async function hostHomeView() {
     <p class="muted" id="hh-msg"></p></div>
     <div class="card"><h2>Upcoming (${up.length})</h2>${up.length ? up.map(card).join("") : `<p class="muted">No upcoming events.</p>`}</div>
     <div class="card"><h2>Past (${past.length})</h2>${past.length ? past.map(card).join("") : `<p class="muted">No past events.</p>`}</div>`;
-  document.getElementById("my-switch").addEventListener("click", () => { localStorage.removeItem("parknear_my_email"); hostHomeView(); });
+  document.getElementById("my-switch").addEventListener("click", () => { localStorage.removeItem("parknear_my_email"); sessionStorage.removeItem("parknear_my_auth"); hostHomeView(); });
+  document.getElementById("my-signout").addEventListener("click", () => { sessionStorage.removeItem("parknear_my_auth"); hostHomeView(); });
   const hhMsg = document.getElementById("hh-msg");
   const hhSet = document.getElementById("hh-set");
   if (hhSet) hhSet.addEventListener("click", async () => {
