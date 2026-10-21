@@ -137,6 +137,22 @@ async function emailDetails(to, toName, subject, message) {
 }
 const mailtoBtn = (to, subject, body) => to ? `<a class="btn secondary" href="mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}">📧 Email these details to myself</a>` : "";
 
+// Emails for a lock/unlock: the neighbor always hears about it; on a LOCK the
+// host also gets a confirmation carrying the guest link to share.
+function notifyLockChange(ev, o, status) {
+  if (!ev || !o) return;
+  if (o.email) {
+    if (status === "locked") emailDetails(o.email, o.neighbor_name, `Your parking spot was accepted — ${ev.party_date}`,
+      `${ev.host_name} accepted your spot at ${o.address} for the event on ${ev.party_date} (${ev.time_from}–${ev.time_to}). Your spot is now locked in — guests can claim it, and you'll get another email with the guest's name and car when someone does.\nYour offer page: ${base()}#/o/${o.id}`);
+    else emailDetails(o.email, o.neighbor_name, `Your parking spot was released — ${ev.party_date}`,
+      `${ev.host_name} released your spot at ${o.address} for the event on ${ev.party_date}, so it's no longer offered to guests. You don't need to do anything.\nYour offer page: ${base()}#/o/${o.id}`);
+  }
+  if (status === "locked" && ev.email) {
+    emailDetails(ev.email, ev.host_name, `Spot locked for your event — ${ev.party_date} · share your guest link`,
+      `Hi ${ev.host_name}, you locked ${o.neighbor_name}'s spot at ${o.address} (${o.spots} spot${o.spots === 1 ? "" : "s"}) for your event on ${ev.party_date} (${ev.time_from}–${ev.time_to}).\n\nSend this link to your guests so they can claim a spot:\n${base()}#/g/${ev.id}\n\nThe same guest link is also on your host dashboard:\n${base()}#/host/${ev.id}`);
+  }
+}
+
 // ---------- map ----------
 let mapObj = null;
 function drawMap(elId, points) {
@@ -300,12 +316,7 @@ async function hostView(ref) {
     o.status = o.status === "locked" ? "offered" : "locked"; if (o.status === "locked" && !o.code) o.code = passcode();
     try { await db.setOfferStatus(o.id, o.status); } catch {}
     saveOffers(ev.id, offers);
-    if (LIVE && o.email) {
-      if (o.status === "locked") emailDetails(o.email, o.neighbor_name, `Your parking spot was accepted — ${ev.party_date}`,
-        `${ev.host_name} accepted your spot at ${o.address} for the event on ${ev.party_date} (${ev.time_from}–${ev.time_to}). Your spot is now locked in — guests can claim it, and you'll get another email with the guest's name and car when someone does.\nYour offer page: ${base()}#/o/${o.id}`);
-      else emailDetails(o.email, o.neighbor_name, `Your parking spot was released — ${ev.party_date}`,
-        `${ev.host_name} released your spot at ${o.address} for the event on ${ev.party_date}, so it's no longer offered to guests. You don't need to do anything.\nYour offer page: ${base()}#/o/${o.id}`);
-    }
+    if (LIVE) notifyLockChange(ev, o, o.status);
     hostView(ev.id);
   }));
   const pinMsg = document.getElementById("pin-msg");
@@ -593,13 +604,8 @@ async function adminView() {
     if (!o) return;
     const newStatus = o.status === "locked" ? "offered" : "locked";
     try { await db.setOfferStatus(o.id, newStatus); } catch (e) { alert(e.message); return; }
-    if (o.email) {
-      const evA = await db.getEvent(b.dataset.ev);
-      if (evA) emailDetails(o.email, o.neighbor_name, newStatus === "locked" ? `Your parking spot was accepted — ${evA.party_date}` : `Your parking spot was released — ${evA.party_date}`,
-        newStatus === "locked"
-          ? `${evA.host_name} accepted your spot at ${o.address} for the event on ${evA.party_date} (${evA.time_from}–${evA.time_to}). Your spot is now locked in — guests can claim it, and you'll get another email with the guest's name and car when someone does.\nYour offer page: ${base()}#/o/${o.id}`
-          : `${evA.host_name} released your spot at ${o.address} for the event on ${evA.party_date}, so it's no longer offered to guests. You don't need to do anything.\nYour offer page: ${base()}#/o/${o.id}`);
-    }
+    const evA = await db.getEvent(b.dataset.ev);
+    if (evA) notifyLockChange(evA, o, newStatus);
     adminView();
   }));
 }
