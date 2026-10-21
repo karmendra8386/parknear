@@ -52,3 +52,14 @@ alter table claims enable row level security;
 create policy "public events" on events for all using (true) with check (true);
 create policy "public offers" on offers for all using (true) with check (true);
 create policy "public claims" on claims for all using (true) with check (true);
+-- Hosts: ONE host PIN per host, keyed by email (migration v5), + email reset codes.
+create table if not exists hosts (
+  email text primary key,
+  pin_hash text not null,
+  reset_hash text,
+  reset_expires timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+alter table hosts enable row level security;
+create policy "public hosts" on hosts for all using (true) with check (true);
